@@ -69,3 +69,8 @@ desktop.ini
 scratch/
 tmp/
 *.tmp
+
+# Generated on this machine by `ss setup`. The same instruction already lives in
+# the managed block at the bottom of AGENTS.md, so committing the duplicate is
+# just noise — and it would tell contributors to call an MCP server they lack.
+.cursor/rules/shadowscribe.mdc

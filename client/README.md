@@ -15,13 +15,13 @@ in a machine-learning stack.
 **Windows:** double-click `scripts\setup-client.cmd`, or from PowerShell:
 
 ```powershell
-..\scripts\setup-client.cmd http://<server>:18080 <SS_TOKEN> -Mcp
+..\scripts\setup-client.cmd http://<server>:18080 <SS_TOKEN>
 ```
 
 **macOS / Linux:**
 
 ```bash
-../scripts/setup-client.sh --endpoint http://<server>:18080 --token <SS_TOKEN> --mcp
+../scripts/setup-client.sh --endpoint http://<server>:18080 --token <SS_TOKEN>
 ```
 
 By hand:
@@ -36,15 +36,20 @@ ss doctor
 ## Use
 
 ```bash
-ss brief                      # print the reality context card
+ss setup                      # ONCE: register MCP + write the static instruction
+                              # after this you never run a ShadowScribe command again
+ss doctor                     # self-check the whole chain
+
+ss brief                      # print the reality context card (manual peek)
 ss brief --copy               # ...and copy it to the clipboard
-ss inject --auto              # write it into Cursor / CLAUDE.md / AGENTS.md
 ss commitments                # what did I promise, and to whom?
 ss commitments --done <id>    # tick one off
 ss search 登录页               # search memory + raw transcripts
 ss timeline --day 2026-01-08
 ss upload meeting.m4a --hint "与老王在会议室"
-ss mcp                        # stdio MCP server
+ss mcp                        # stdio MCP server (what `ss setup` registers)
+ss inject --auto              # SNAPSHOT into editor rule files — for clients
+                              # without MCP; it expires, so MCP is preferred
 ```
 
 ## MCP registration

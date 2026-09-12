@@ -2,27 +2,28 @@
 #
 # 影书 ShadowScribe —— 电脑端一键安装与配置（macOS / Linux）。
 #
-#   ./setup-client.sh --endpoint http://47.102.212.49:18080 --token <SS_TOKEN> [--mcp] [--inject]
+#   ./setup-client.sh --endpoint http://host:18080 --token <SS_TOKEN>
 #
-# 把「本地通过内网穿透地址跟服务器沟通」压成一条命令：
-# 装客户端 → 写配置 → 连通性自检。
+# 装客户端 → 写配置 → 自检 → 接线（注册 MCP + 写静态指令）。
+#
+# 最后一步才是「无感」的关键：它写的是**永不变化的静态指令**，让编辑器自己按需
+# 调 MCP 拿实时上下文。之后你不需要再运行任何影书命令。
+# 手动跑 `ss inject` 那种「快照」方式只给不支持 MCP 的客户端用。
 #
 set -uo pipefail
 
 ENDPOINT=""
 TOKEN=""
-DO_MCP=0
-DO_INJECT=0
 NO_INSTALL=0
+NO_SETUP=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --endpoint) ENDPOINT="${2:-}"; shift 2 ;;
     --token)    TOKEN="${2:-}"; shift 2 ;;
-    --mcp)      DO_MCP=1; shift ;;
-    --inject)   DO_INJECT=1; shift ;;
+    --no-setup) NO_SETUP=1; shift ;;
     --no-install) NO_INSTALL=1; shift ;;
-    -h|--help)  sed -n '2,10p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
 done
@@ -130,29 +131,17 @@ step "5/5 自检"
 "${SS_RUN[@]}" doctor
 DOCTOR=$?
 
-# ----------------------------------------------------------------- optional --
-if [ "$DO_MCP" = "1" ]; then
-  step "附加：注册 MCP 到 Cursor"
-  MCP_DIR="$HOME/.cursor"
-  MCP_FILE="$MCP_DIR/mcp.json"
-  mkdir -p "$MCP_DIR"
-  [ -f "$MCP_FILE" ] && cp "$MCP_FILE" "$MCP_FILE.bak" && warn "原文件已备份为 mcp.json.bak"
-  "$PY" - "$MCP_FILE" "$SS" <<'PY'
-import json, pathlib, sys
-path, ss = pathlib.Path(sys.argv[1]), sys.argv[2]
-try:
-    data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-except Exception:
-    data = {}
-data.setdefault("mcpServers", {})["shadowscribe"] = {"command": ss, "args": ["mcp"]}
-path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-print(f"    写入 {path}")
-PY
-fi
-
-if [ "$DO_INJECT" = "1" ]; then
-  step "附加：往当前目录注入上下文"
-  "${SS_RUN[@]}" inject --auto
+# ------------------------------------------------------------------ 6. setup --
+# 这一步才是「无感」的关键，而且只需要跑这一次。
+#
+# 之前我把 `ss inject`（写快照）当成日常命令，那是错的：快照一过期就要重跑，
+# 等于让用户每天手动搬运自己的上下文。`ss setup` 写的是**永不变化的静态指令**，
+# 它让编辑器自己去调 MCP 拿实时数据，所以之后什么都不用做。
+if [ "$NO_SETUP" = "1" ]; then
+  step "6/6 跳过接线（--no-setup）"
+else
+  step "6/6 接线：注册 MCP + 写静态指令"
+  "${SS_RUN[@]}" setup || warn "接线有项目没成功，看上面的输出"
 fi
 
 # ------------------------------------------------------------------- 收尾 --
@@ -164,9 +153,11 @@ else
 fi
 cat <<'EOF'
 
-  日常两条命令：
-    ss brief --copy     看最近发生了什么，并复制到剪贴板
-    ss inject --auto    把上下文写进 Cursor / CLAUDE.md，之后新会话自动带上
+  之后你不需要再运行任何影书命令。
+  在 Cursor 里直接说事，它会自己调 get_reality_context 拿现实上下文。
+
+  可选：想手动看一眼现实里发生了什么 ——
+    ss brief --copy     打印最近上下文并复制到剪贴板
 
   更多：ss --help    ·    文档：https://github.com/yw1103/ShadowScribe
 

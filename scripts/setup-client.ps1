@@ -11,6 +11,10 @@
       2) 在 PowerShell 里：
          .\setup-client.ps1 -Endpoint http://host:18080 -Token <SS_TOKEN>
 
+    装完之后**不需要再运行任何影书命令**：最后一步会把 MCP 注册进编辑器，
+    并写入一段永不变化的静态指令，让编辑器自己在需要时拉取现实上下文。
+    手动跑命令那种「快照」方式保留在 `ss inject`，只给不支持 MCP 的客户端用。
+
     注意：Windows 默认不允许双击 .ps1（会弹「选择打开方式」），也默认禁止运行
     未签名脚本。这是系统设计，不是脚本问题 —— 双击 .cmd 即可绕开两者。
 
@@ -24,11 +28,8 @@
 .PARAMETER Token
     服务端 .env 里的 SS_TOKEN。
 
-.PARAMETER Mcp
-    顺便把 MCP 服务注册到 Cursor 的 ~/.cursor/mcp.json（会先备份原文件）。
-
-.PARAMETER Inject
-    顺便往当前目录注入一次上下文（等价于 ss inject --auto）。
+.PARAMETER NoSetup
+    跳过最后一步接线（注册 MCP + 写静态指令）。一般不需要。
 
 .PARAMETER NoInstall
     跳过 pip 安装，只写配置并自检。
@@ -37,8 +38,7 @@
 param(
     [string]$Endpoint,
     [string]$Token,
-    [switch]$Mcp,
-    [switch]$Inject,
+    [switch]$NoSetup,
     [switch]$NoInstall
 )
 
@@ -195,37 +195,20 @@ Step "5/5 自检"
 SS doctor
 $doctorExit = $LASTEXITCODE
 
-# ----------------------------------------------------------------- optional --
-if ($Mcp) {
-    Step "附加：注册 MCP 到 Cursor"
-    $cursorDir = Join-Path $env:USERPROFILE ".cursor"
-    $mcpFile = Join-Path $cursorDir "mcp.json"
-    if (-not (Test-Path $cursorDir)) { New-Item -ItemType Directory -Force -Path $cursorDir | Out-Null }
-
-    $servers = [ordered]@{}
-    if (Test-Path $mcpFile) {
-        Copy-Item $mcpFile "$mcpFile.bak" -Force
-        try {
-            $existing = Get-Content $mcpFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($existing.mcpServers) {
-                foreach ($p in $existing.mcpServers.PSObject.Properties) {
-                    $servers[$p.Name] = $p.Value
-                }
-            }
-        } catch {
-            Warn "原有 mcp.json 解析不了，已备份为 mcp.json.bak，将新建"
-        }
+# ------------------------------------------------------------------ 6. setup --
+# 这一步才是「无感」的关键，而且它只需要跑这一次。
+#
+# 之前我把 `ss inject`（写快照）当成日常命令，那是错的：快照一过期就要重跑，
+# 等于让用户每天手动搬运自己的上下文。`ss setup` 写的是**永不变化的静态指令**，
+# 它让编辑器自己去调 MCP 拿实时数据，所以之后什么都不用做。
+if ($NoSetup) {
+    Step "6/6 跳过接线（-NoSetup）"
+} else {
+    Step "6/6 接线：注册 MCP + 写静态指令"
+    SS setup --root (Get-Location).Path
+    if ($LASTEXITCODE -ne 0) {
+        Warn "接线有项目没成功，看上面的输出"
     }
-    $servers['shadowscribe'] = [ordered]@{ command = $ss; args = @('mcp') }
-    (@{ mcpServers = $servers } | ConvertTo-Json -Depth 10) |
-        Set-Content -Path $mcpFile -Encoding UTF8
-    Good "写入 $mcpFile（原文件备份为 mcp.json.bak）"
-    Say "         重启 Cursor 后，问它「我今天答应了谁什么」试试" -ForegroundColor DarkGray
-}
-
-if ($Inject) {
-    Step "附加：往当前目录注入上下文"
-    SS inject --auto
 }
 
 # ------------------------------------------------------------------- 收尾 --
@@ -236,9 +219,11 @@ if ($doctorExit -eq 0) {
     Say "  装好了，但自检有项目没通过 —— 看上面的 [MISS] 和建议。" -ForegroundColor Yellow
 }
 Say ""
-Say "  日常两条命令："
-Say "    ss brief --copy     看最近发生了什么，并复制到剪贴板"
-Say "    ss inject --auto    把上下文写进 Cursor / CLAUDE.md，之后新会话自动带上"
+Say "  之后你不需要再运行任何影书命令。" -ForegroundColor Green
+Say "  在 Cursor 里直接说事，它会自己调 get_reality_context 拿现实上下文。"
+Say ""
+Say "  可选：想手动看一眼现实里发生了什么 ——"
+Say "    ss brief --copy     打印最近上下文并复制到剪贴板"
 Say ""
 Say "  更多：ss --help    ·    文档：https://github.com/yw1103/ShadowScribe"
 Say ""

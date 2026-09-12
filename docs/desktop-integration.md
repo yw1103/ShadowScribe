@@ -14,13 +14,13 @@
 
 ```powershell
 cd ShadowScribe\scripts
-.\setup-client.cmd http://<服务器>:18080 <SS_TOKEN> -Mcp
+.\setup-client.cmd http://<服务器>:18080 <SS_TOKEN>
 ```
 
 **macOS / Linux**：
 
 ```bash
-./scripts/setup-client.sh --endpoint http://<服务器>:18080 --token <SS_TOKEN> --mcp
+./scripts/setup-client.sh --endpoint http://<服务器>:18080 --token <SS_TOKEN>
 ```
 
 手工安装：
@@ -49,31 +49,67 @@ ss doctor
 
 ---
 
-## 2. 三种注入方式
+## 2. 两条路径，先选对
 
-影书提供三条路径，按"自动化程度"递增：
+影书有**两种完全不同的注入方式**，混淆它们会得到一个每天都要手动维护的系统 —— 那正是本项目要消灭的东西。
 
-### 方式一：手动粘贴（零配置）
+| | **① 静态指令 + MCP**（无感） | **② 快照**（应急） |
+|---|---|---|
+| 命令 | `ss setup` **跑一次** | `ss inject` 每次都要重跑 |
+| 写什么 | 一段**永不变化**的指令："去调 MCP 拿上下文" | 当时那一刻的上下文卡片 |
+| 数据新鲜度 | **实时**（每次对话现拉） | 停在执行命令的那一刻 |
+| 你需要做什么 | **什么都不用做** | 记得手动刷新 |
+
+**默认走 ①。** ② 只用于不支持 MCP 的客户端，或者你想手动贴进网页版 ChatGPT。
+
+---
+
+### 路径 ①：`ss setup`（跑一次，永久无感）
 
 ```bash
-ss brief --copy        # 打印并复制到剪贴板
+cd 你的项目
+ss setup
 ```
 
-然后粘进任何 AI 对话框。适合偶尔使用、或非编辑器场景（网页版 ChatGPT 等）。
+它做三件事，都不需要重复执行：
 
-### 方式二：写进编辑器规则文件（推荐）
+1. **注册 MCP** —— 写进 `~/.cursor/mcp.json`（Cursor 全局）和 Claude Desktop 配置。
+   合并式写入，**不会动你已有的其他 MCP server**，写前自动备份。
+2. **写静态指令** —— 项目级 `.cursor/rules/shadowscribe.mdc`（`alwaysApply: true`）
+   和 `AGENTS.md`；全局的 `~/.claude/CLAUDE.md`。
+3. **打印一段文字**，让你粘贴到 Cursor → Customize → Rules → **User Rules**。
+
+> **为什么最后一步要手动？** Cursor 唯一有文档保证的*全局*机制是 User Rules，
+> 它存在 Cursor 自己的数据库里，没有公开的文件接口。项目级规则（`.cursor/rules`）
+> 是自动的，但只覆盖那一个项目。粘贴一次 User Rules，之后所有项目都自动生效。
+
+静态指令的内容长这样 —— 它**只描述"去哪里拿"，不含任何记忆**，所以永远不会过期：
+
+```markdown
+**开始处理任务前，先调用 `get_reality_context`。**
+- 问"我还欠谁什么"、"待办" → `list_open_commitments`
+- 提到具体的人/项目/事件 → `search_reality`
+
+用户的指令通常很短、缺背景 —— 背景不在他脑子里等你追问，而在影书里。
+**不要反问"你指的是什么"，先拉上下文。**
+```
+
+配置完成后，在 Cursor 里**直接说事**即可，它会自己去拉实时上下文。
+
+---
+
+### 路径 ②：`ss inject`（快照，给没有 MCP 的客户端）
 
 ```bash
-ss inject --auto
+ss brief --copy              # 只打印 + 复制到剪贴板，不动任何文件
+ss inject --auto             # 写进编辑器规则文件
 ```
-
-自动探测当前仓库里存在的编辑器标记，把上下文卡片写进对应文件：
 
 | `--target` | 写入文件 | 适用 |
 |---|---|---|
-| `cursor` | `.cursor/rules/shadowscribe.mdc` | Cursor（带 `alwaysApply: true` 前置元数据） |
-| `claude` | `CLAUDE.md` | Claude Code / Claude Desktop |
-| `agents` | `AGENTS.md` | Codex、Amp 等遵循 AGENTS.md 约定的工具 |
+| `cursor` | `.cursor/rules/shadowscribe.mdc` | Cursor |
+| `claude` | `CLAUDE.md` | Claude Code / Desktop |
+| `agents` | `AGENTS.md` | Codex、Amp 等 |
 | `gemini` | `GEMINI.md` | Gemini CLI |
 | `copilot` | `.github/copilot-instructions.md` | GitHub Copilot |
 | `windsurf` | `.windsurfrules` | Windsurf |
@@ -87,26 +123,18 @@ ss inject --auto
 <!-- SHADOWSCRIBE:END -->
 ```
 
-标记之外的内容**永远不会被改动**。移除用：
+标记之外的内容**永远不会被改动**。移除用 `ss inject --remove`，
+预览用 `ss inject --dry-run`。
 
-```bash
-ss inject --remove
-```
+> ⚠️ **这是快照，会过期。** 文件里是执行命令那一刻的上下文，之后现实世界继续在走。
+> 快照块里也写了这句提醒，避免读到的人把一周前的卡片当成当前状态。
+> 能用 MCP 就别用这条。
 
-查看会写入什么而不实际写入：
+---
 
-```bash
-ss inject --dry-run
-```
+## 3. MCP 工具清单
 
-> **注意**：这是**快照式**注入——文件里是执行 `ss inject` 那一刻的上下文。
-> 建议养成习惯：开会回来、或每天开工前跑一次。想做完全自动，用方式三。
-
-### 方式三：MCP（真正的"静默拉取"）
-
-MCP 让编辑器在会话中**主动调用**影书，而不是读一个可能过期的文件。
-
-在 Cursor / Claude Desktop / Claude Code 的 MCP 配置里加：
+`ss setup` 已经帮你注册好了。手工注册的话，配置长这样：
 
 ```json
 {
@@ -119,10 +147,15 @@ MCP 让编辑器在会话中**主动调用**影书，而不是读一个可能过
 }
 ```
 
-**Cursor**：`~/.cursor/mcp.json`（全局）或项目内 `.cursor/mcp.json`
-**Claude Desktop**：`~/Library/Application Support/Claude/claude_desktop_config.json`（macOS）
-或 `%APPDATA%\Claude\claude_desktop_config.json`（Windows）
-**Claude Code**：`claude mcp add shadowscribe -- ss mcp`
+写入位置：
+
+- **Cursor**：`~/.cursor/mcp.json`（全局）或项目内 `.cursor/mcp.json`
+- **Claude Desktop**：macOS `~/Library/Application Support/Claude/claude_desktop_config.json`
+  · Windows `%APPDATA%\Claude\claude_desktop_config.json`
+- **Claude Code**：`claude mcp add shadowscribe -- ss mcp`
+
+> `ss setup` 写入的是 `ss` 的**绝对路径**而不是裸 `ss`：从开始菜单启动的编辑器
+> 继承的环境和你装客户端的那个终端不一样，裸命令经常找不到。
 
 #### 暴露的工具
 

@@ -67,9 +67,6 @@ if "%TK%"=="" (
     exit /b 1
 )
 echo.
-set /p "MCP=  Also register MCP for Cursor? [y/N]: "
-if /i "%MCP%"=="y" set "EXTRA=-Mcp"
-echo.
 
 :run
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -Endpoint "%EP%" -Token "%TK%" %EXTRA%
@@ -79,7 +76,7 @@ echo.
 if not "%RC%"=="0" (
     echo   Finished with warnings ^(exit %RC%^). Read the messages above.
 ) else (
-    echo   Done.
+    echo   Done. You never need to run a ShadowScribe command again.
 )
 echo.
 pause

@@ -182,7 +182,7 @@ done
 
 ```powershell
 cd ShadowScribe\scripts
-.\setup-client.cmd http://47.102.212.49:18080 <SS_TOKEN> -Mcp
+.\setup-client.cmd http://47.102.212.49:18080 <SS_TOKEN>
 ```
 
 （也可以 `.\setup-client.ps1 -Endpoint ... -Token ...`，但要先确保执行策略允许。）
@@ -190,18 +190,20 @@ cd ShadowScribe\scripts
 #### macOS / Linux
 
 ```bash
-./scripts/setup-client.sh --endpoint http://47.102.212.49:18080 --token <SS_TOKEN> --mcp
+./scripts/setup-client.sh --endpoint http://47.102.212.49:18080 --token <SS_TOKEN>
 ```
 
-脚本会依次做五件事，每步都打印结果：
+脚本会依次做六件事，每步都打印结果：
 
 1. 检查 Python ≥ 3.10
 2. 安装 `shadowscribe-client[mcp]`（三个来源依次兜底）
 3. 定位 `ss` 命令（不在 PATH 会告诉你怎么加）
 4. 写入连接配置到 `~/.shadowscribe/config.json`
 5. 运行 `ss doctor` 自检
+6. **接线**：注册 MCP + 写永不变化的静态指令
 
-`-Mcp` / `--mcp` 会顺便把 MCP 服务注册进 Cursor（原 `mcp.json` 会先备份）。
+第 6 步是「无感」的关键：跑完它之后，你就再也不需要运行任何影书命令。
+细节见 [§2.2](#22-电脑端--你其实什么都不用做)。
 
 #### 手工安装（如果不想用脚本）
 
@@ -260,15 +262,48 @@ recorded_at   = 2026-01-08T14:05:00+08:00                ← 强烈建议填
 音频建议 **Opus 24–32 kbps 单声道**，一天约 250–350 MB。
 不要用 128 kbps 立体声，那是 10 倍流量且对识别毫无帮助。
 
-### 2.2 电脑端
+### 2.2 电脑端 —— 你其实什么都不用做
 
-#### 方式一：手动粘贴（零配置，偶尔用）
+装完之后，**在 Cursor 里直接说事就行**。它会自己去调 MCP 拿实时上下文。
+
+下面说明为什么，以及两个可选动作。
+
+#### 无感是怎么做到的
+
+有两件**完全不同**的事，混起来就会得到一个每天要手动维护的系统：
+
+| | **静态指令 + MCP**（默认） | **快照**（应急） |
+|---|---|---|
+| 命令 | `ss setup` **跑一次** | `ss inject` 每次重跑 |
+| 内容 | "去调 MCP 拿上下文"这句话 | 当时那一刻的上下文卡片 |
+| 新鲜度 | **实时** | 停在执行命令那一刻 |
+| 你要做的 | **什么都不做** | 记得手动刷新 |
+
+`ss setup` 写的是**左边这一列**：一段永不变化的指令，让编辑器自己在需要时拉数据。
+所以它跑一次就够了 —— 没有任何东西会过期。
+
+> 我曾经把右边的「快照」当成日常命令推荐，那是错的：快照一过期就要重跑，
+> 等于让你每天手动搬运自己的上下文，而这正是影书要消灭的事。
+
+#### 验证接线是否生效
 
 ```bash
-ss brief --copy        # 打印最近 24 小时的上下文卡片，并复制到剪贴板
+ss doctor          # 看 MCP 依赖那一行
 ```
 
-粘进任何 AI 对话框（包括网页版）。卡片长这样：
+然后在 Cursor 里新开一个会话，问一句 **"我今天答应了谁什么"**。
+如果它开始调 `get_reality_context` / `list_open_commitments`，就通了。
+
+没通的话，检查 Cursor → Customize → Rules 里有没有 `shadowscribe`，
+以及 Settings → MCP 里 `shadowscribe` 是不是绿的。
+
+#### 可选动作一：手动看一眼（不写任何文件）
+
+```bash
+ss brief --copy        # 打印最近 24 小时上下文卡片，并复制到剪贴板
+```
+
+粘进任何 AI 对话框（包括网页版 ChatGPT）。卡片长这样：
 
 ```markdown
 # 影书 · 现实上下文（2026-09-11 13:33 → 09-12 13:33）
@@ -276,7 +311,7 @@ ss brief --copy        # 打印最近 24 小时的上下文卡片，并复制到
 
 ## ⏳ 进行中的承诺
 - [ ] 跟财务确认预付款比例后给客户答复 → 李经理 · 截止 09-13
-- [ ] 给出完整的修复方案 → 对方 · 截止 09-17
+- [ ] 给出完整的修复方案 → 老王 · 截止 09-17
 
 ## 🎯 关键决策
 - 登录页Safari兼容性问题优先级最高，新功能往后放（我拍的）
@@ -288,14 +323,16 @@ ss brief --copy        # 打印最近 24 小时的上下文卡片，并复制到
 [00:40] 未知: “这样,我周四之前给你一个明确的交付计划,包含里程碑和风险点。”
 ```
 
-#### 方式二：写进编辑器规则文件（推荐日常用）
+#### 可选动作二：快照注入（给没有 MCP 的客户端）
 
 ```bash
-cd 你的项目目录
 ss inject --auto
 ```
 
-自动探测目录里有哪些编辑器，写进对应文件：
+这个写的是**快照** —— 把当前卡片塞进编辑器的规则文件。适用于：
+
+- 你用的客户端不支持 MCP
+- 你想把上下文固化成文件留在仓库里
 
 | 编辑器 | 写入文件 |
 |---|---|
@@ -309,19 +346,14 @@ ss inject --auto
 
 **幂等**：内容包在 `<!-- SHADOWSCRIBE:BEGIN -->` / `END` 之间，重复执行是原地替换，
 不会追加第二份。**标记之外的内容永远不动**（你手写的规则不会被覆盖）。
+撤销用 `ss inject --remove`，预览用 `ss inject --dry-run`。
 
-撤销：
+> ⚠️ 快照会过期。块里写了提醒，免得读到的人把一周前的卡片当成当前状态。
+> 能用 MCP 就别用这条。
 
-```bash
-ss inject --remove
-```
+#### MCP 暴露了什么
 
-> 这是**快照式**注入——文件里是执行那一刻的上下文。
-> 建议开会回来 / 每天开工前跑一次。想完全自动就用方式三。
-
-#### 方式三：MCP（真正的静默拉取）
-
-在 Cursor / Claude Desktop / Claude Code 里注册：
+`ss setup` 已经注册好了。手工注册的话：
 
 ```json
 {
@@ -348,17 +380,18 @@ ss inject --remove
 ### 2.3 全部命令
 
 ```bash
+ss setup                                   # 【跑一次】注册 MCP + 写静态指令
 ss doctor                                  # 自检（出问题先跑这个）
 ss status                                  # 服务端存量与健康
-ss brief [--hours N] [--copy] [--out F]    # 上下文卡片
+ss brief [--hours N] [--copy] [--out F]    # 手动看一眼上下文卡片
 ss commitments [--status open|done|all]    # 我还欠谁什么
 ss commitments --done <id>                 # 勾掉一项
 ss search <关键词>                          # 搜记忆库 + 原始转写
 ss timeline [--day YYYY-MM-DD]             # 某天的时间轴
 ss recordings [--status failed]            # 上传/处理状态
 ss upload <文件> [--hint "..."]             # 从电脑上传一段音频（测试用）
-ss inject [--auto|--target X] [--remove]   # 注入编辑器
-ss mcp                                     # 启动 MCP 服务
+ss inject [--auto|--target X] [--remove]   # 写【快照】进编辑器（没有 MCP 时才用）
+ss mcp                                     # 启动 MCP 服务（`ss setup` 注册的就是它）
 ss login --endpoint URL --token T          # 保存连接信息
 ```
 
@@ -469,11 +502,16 @@ docker run --rm -v shadowscribe-data:/data -v "$PWD:/backup" alpine \
 
 ---
 
-## 7. 每天只需要记两条命令
+## 7. 你每天需要记的命令：零条
 
 ```bash
-ss brief --copy      # 看看最近现实中发生了什么
-ss inject --auto     # 把它写进编辑器，之后新会话自动带着
+ss setup             # 只在装完/换电脑时跑一次，之后永远不用再跑
 ```
 
-配置好 MCP 之后，连这两条都可以省掉。
+之后在 Cursor 里直接说事。它会自己去拉现实上下文 —— **你不需要在"现实"和"AI"之间当搬运工**。
+
+唯一可选的例外：想亲眼看看最近发生了什么，或者要贴进网页版 ChatGPT：
+
+```bash
+ss brief --copy
+```

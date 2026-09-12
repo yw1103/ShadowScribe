@@ -224,13 +224,13 @@ SS_TOKEN=<你的token> ./scripts/verify_e2e.sh /path/to/some.m4a --hint "与老�
 
 ```powershell
 cd ShadowScribe\scripts
-.\setup-client.cmd http://<你的服务器>:18080 <SS_TOKEN> -Mcp
+.\setup-client.cmd http://<你的服务器>:18080 <SS_TOKEN>
 ```
 
 **macOS / Linux**
 
 ```bash
-./scripts/setup-client.sh --endpoint http://<你的服务器>:18080 --token <SS_TOKEN> --mcp
+./scripts/setup-client.sh --endpoint http://<你的服务器>:18080 --token <SS_TOKEN>
 ```
 
 手工安装（任选其一）：
@@ -242,9 +242,23 @@ pip install "shadowscribe-client[mcp] @ git+https://github.com/yw1103/ShadowScri
 
 ### 3. 用起来
 
+跑一次接线，之后**你不需要再运行任何影书命令**：
+
 ```bash
-ss brief            # 打印今天的现实上下文卡片
-ss inject --auto    # 写进 Cursor / CLAUDE.md —— 之后新会话自动带上下文
+ss setup            # 注册 MCP + 写一段永不变化的静态指令
+```
+
+然后在 Cursor / Claude 里**直接说事**，它会自己去调 `get_reality_context`：
+
+> **你**：写测试用例
+>
+> **AI**：（自己拉了今天的现实上下文）…基于老王反馈的 Safari 白屏和周四的修复承诺，
+> 我先写兼容性回归用例…
+
+想亲眼看看最近发生了什么（不写任何文件）：
+
+```bash
+ss brief --copy     # 打印上下文卡片并复制到剪贴板，可贴进任何 AI
 ```
 
 ---
@@ -340,10 +354,12 @@ curl -X POST "http://<server>:18080/v1/uploads/<upload_id>/complete" \
 ## 🖥 电脑端使用
 
 ```bash
-ss brief                        # 打印上下文卡片
+ss setup                        # 【跑一次】注册 MCP + 写静态指令 → 之后永久无感
+ss doctor                       # 自检：配置 / 网络 / 鉴权 / 数据 / 编辑器 / MCP
+
+ss brief                        # 手动看一眼：打印上下文卡片
 ss brief --copy                 # 顺便复制到剪贴板（贴进任何 AI 都能用）
 ss brief --hours 72             # 回溯 3 天
-ss inject --auto                # 写进 Cursor / CLAUDE.md / AGENTS.md / Copilot
 ss commitments                  # 我还欠着谁什么？
 ss commitments --done <id>      # 勾掉一项
 ss search 登录页                 # 搜记忆库 + 原始转写

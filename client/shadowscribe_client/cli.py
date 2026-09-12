@@ -259,7 +259,60 @@ def cmd_recordings(args) -> int:
     return 0
 
 
+def cmd_setup(args) -> int:
+    """Wire the desktop once: MCP registration + the static instruction.
+
+    Nothing here needs re-running. That is the design goal — a command you must
+    remember to run every morning makes the user the transport layer between
+    their own day and their own tools, which is exactly what this project exists
+    to remove.
+    """
+    from . import install as install_mod
+
+    report = install_mod.setup(project_root=Path(args.root).resolve() if args.root else None)
+    command = install_mod.resolve_server_command()
+
+    print("==> MCP 注册（编辑器从这里找到影书）")
+    print(f"    命令：{' '.join(command)}")
+    for action in report.actions:
+        if action.label.startswith("MCP"):
+            print(f"  [{'OK  ' if action.ok else 'FAIL'}] {action.label:<24} {action.detail}")
+
+    print()
+    print("==> 静态指令（内容永不变化，所以永远不需要重跑）")
+    for action in report.actions:
+        if action.label.startswith("规则"):
+            print(f"  [{'OK  ' if action.ok else 'FAIL'}] {action.label:<24} {action.detail}")
+
+    print()
+    print("==> 还剩一步需要你手动做一次")
+    print("    打开 Cursor → Customize → Rules → User Rules，粘贴下面这段：")
+    print()
+    for line in report.user_rules_hint.splitlines():
+        print(f"      {line}")
+    print()
+    print("    为什么必须手动：Cursor 唯一有文档保证的全局机制是 User Rules，")
+    print("    它存在 Cursor 自己的数据库里，没有公开的文件接口。")
+    print("    粘贴一次，之后所有项目、所有新会话都自动生效。")
+
+    if report.failures:
+        print()
+        print(f"  {len(report.failures)} 项没成功，看上面的 FAIL 行。")
+        return 1
+
+    print()
+    print("==> 完成。日常你不需要再运行任何影书命令 ——")
+    print("    在 Cursor 里直接说事，它会自己调 get_reality_context。")
+    return 0
+
+
 def cmd_inject(args) -> int:
+    """Snapshot injection — the fallback for clients with no MCP support.
+
+    Emphatically not the daily driver: a snapshot expires as soon as the world
+    moves, so it has to be re-run, which is the friction this project exists to
+    remove. Use ``ss setup`` for the imperceptible path.
+    """
     with _client(args) as client:
         card = client.brief(hours=args.hours, max_tokens=args.max_tokens)
 
@@ -284,7 +337,9 @@ def cmd_inject(args) -> int:
         block = inject_mod.render_block(card, target=target)
         outcome = inject_mod.inject(path, block, frontmatter=target.frontmatter)
         print(f"  {outcome:<9} {target.label:<34} {path}")
-    print(f"\n上下文已注入（{len(card)} 字符）。下次打开编辑器新会话时，AI 会自动带着它。")
+    print(f"\n快照已写入（{len(card)} 字符）。")
+    print("注意：这是**快照**，会过期，所以要重跑。")
+    print("想彻底不用管，用 `ss setup` 走 MCP 路线 —— 那才是无感的那条。")
     return 0
 
 
@@ -476,7 +531,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--status", default=None)
     p.set_defaults(func=cmd_recordings)
 
-    p = sub.add_parser("inject", help="write the context card into editor rule files")
+    p = sub.add_parser("setup", help="一次性接线：注册 MCP + 写静态指令（之后永久无感）")
+    p.add_argument("--root", help="把项目级规则写到这个目录（默认当前目录）")
+    p.set_defaults(func=cmd_setup)
+
+    p = sub.add_parser("inject", help="写入上下文【快照】—— 给不支持 MCP 的客户端用")
     p.add_argument(
         "--target",
         dest="targets",

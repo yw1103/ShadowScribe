@@ -478,3 +478,56 @@ def test_brief_empty_store_suggests_uploading(client, clean_db):
     card = client.get("/v1/context/brief", headers=AUTH).text
     assert "ss status" in card
     assert "正在处理中" not in card
+
+
+def test_brief_quotes_cover_every_recording(client, clean_db):
+    """A long meeting must not crowd a short call out of 原话锚点 entirely.
+
+    Found on a live deployment: a 90 s meeting filled all six slots by length, so
+    a 50 s customer call produced no quotes at all even though it was distilled
+    into the same card.
+    """
+    from sqlmodel import Session
+
+    from shadowscribe import models
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with Session(clean_db) as session:
+        long_rec = models.Recording(client_id="a", recorded_at=now, status="done")
+        short_rec = models.Recording(client_id="b", recorded_at=now, status="done")
+        session.add(long_rec)
+        session.add(short_rec)
+        session.flush()
+
+        # the meeting: many long utterances
+        for i in range(8):
+            session.add(
+                models.Segment(
+                    recording_id=long_rec.id,
+                    idx=i,
+                    start_ms=i * 1000,
+                    end_ms=i * 1000 + 900,
+                    speaker="unknown",
+                    text=f"会议室里说的一句相当长的话，编号 {i}，用来把长度榜占满。",
+                )
+            )
+        # the call: one short but meaningful line
+        session.add(
+            models.Segment(
+                recording_id=short_rec.id,
+                idx=0,
+                start_ms=0,
+                end_ms=1000,
+                speaker="unknown",
+                text="明天上午给你答复。",
+            )
+        )
+        session.commit()
+
+    card = client.get("/v1/context/brief", headers=AUTH).text
+    quotes = [line for line in card.splitlines() if line.startswith("[")]
+    assert quotes, "expected a 原话锚点 section"
+    assert any("明天上午给你答复" in q for q in quotes), (
+        "the short conversation's only usable line was dropped"
+    )
+    assert any("会议室里说的" in q for q in quotes), "the long conversation disappeared"

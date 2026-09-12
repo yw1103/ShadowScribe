@@ -158,7 +158,7 @@ def build_brief(options: BriefOptions | None = None, settings=None) -> str:
     if opts.include_entities and entity_names:
         optional.append(("👥 涉及的人与项目", [" · ".join(entity_names)]))
     if opts.include_quotes:
-        optional.append(("💬 原话锚点", _best_quotes(segments, limit=6)))
+        optional.append(("💬 原话锚点", _best_quotes(segments, rec_ids, limit=6)))
 
     return _assemble(overview, mandatory, optional, opts.max_tokens)
 
@@ -374,22 +374,46 @@ def _top_entities(entities: list[models.Entity], limit: int = 12) -> list[str]:
     return [f"{glyph.get(kind, '•')}{name}" for name, (_, kind) in ordered]
 
 
-def _best_quotes(segments: list[models.Segment], limit: int = 6) -> list[str]:
+def _best_quotes(
+    segments: list[models.Segment], recording_order: list[str], limit: int = 6
+) -> list[str]:
     """Pick the most informative lines, then show them chronologically.
 
-    Selection ranks the owner's own words first (they carry intent) and longer
-    utterances above shorter ones. Display order is by timestamp though — a
-    context card whose quotes jump around in time reads as noise.
+    Two rules that matter more than the ranking itself:
+
+    * quotes are drawn **round-robin across recordings** before falling back to
+      second-best lines. A global top-N by length let one long meeting crowd out
+      every shorter conversation entirely — a 50 s call produced no quotes at all
+      while a 90 s meeting filled the section.
+    * display order is by timestamp. Selection is by informativeness, but a card
+      whose quotes jump around in time reads as noise.
     """
-    ranked = sorted(
-        (s for s in segments if len(s.text) >= 8 and (s.avg_logprob or 0) > -1.0),
-        key=lambda s: (s.speaker == "owner", len(s.text)),
-        reverse=True,
-    )[:limit]
+    usable = [s for s in segments if len(s.text) >= 8 and (s.avg_logprob or 0) > -1.0]
+
+    by_recording: dict[str, list[models.Segment]] = {}
+    for seg in usable:
+        by_recording.setdefault(seg.recording_id, []).append(seg)
+    for bucket in by_recording.values():
+        # The owner's own words carry intent best; longer utterances carry more.
+        bucket.sort(key=lambda s: (s.speaker == "owner", len(s.text)), reverse=True)
+
+    ordered = [rid for rid in recording_order if rid in by_recording]
+    ordered += [rid for rid in by_recording if rid not in ordered]
+
+    picked: list[models.Segment] = []
+    depth = 0
+    while len(picked) < limit and any(len(by_recording[rid]) > depth for rid in ordered):
+        for rid in ordered:
+            if len(picked) >= limit:
+                break
+            if len(by_recording[rid]) > depth:
+                picked.append(by_recording[rid][depth])
+        depth += 1
+
     out: list[str] = []
-    for seg in sorted(ranked, key=lambda s: (s.recording_id, s.start_ms)):
+    for seg in sorted(picked, key=lambda s: (s.recording_id, s.start_ms)):
         who = {"owner": "我", "guest": "对方"}.get(seg.speaker or "", "未知")
-        stamp = f"{seg.start_ms // 60000:02d}:{(seg.start_ms // 1000) % 60:02d}"
+        stamp = f"{seg.start_ms // 60000:02d}:{(seg.start_ms % 60000) // 1000:02d}"
         out.append(f"[{stamp}] {who}: “{seg.text}”")
     return out
 

@@ -322,7 +322,14 @@ def mount_mcp(app, settings=None, prefix: str = "/mcp") -> bool:
         max_request_body_size=8 * 1024 * 1024,
     )
 
-    handler = BearerAuth(_McpPathRewrite(inner, prefix), s.effective_token)
+    handler: object = _McpPathRewrite(inner, prefix)
+    auth_note = "no auth"
+    if s.mcp_require_token and s.effective_token:
+        # Off by default. This is a single-user tool on the owner's own box, and a
+        # token in an editor config buys nothing during an MVP. Set
+        # SS_MCP_REQUIRE_TOKEN=true once the endpoint stops being private.
+        handler = BearerAuth(handler, s.effective_token)
+        auth_note = "bearer auth"
 
     # A Route whose endpoint is not a plain function is used as a raw ASGI app.
     methods = ["GET", "POST", "DELETE", "OPTIONS"]
@@ -339,7 +346,7 @@ def mount_mcp(app, settings=None, prefix: str = "/mcp") -> bool:
             yield
 
     app.router.lifespan_context = combined
-    log.info("MCP endpoint mounted at %s (streamable HTTP, bearer auth)", prefix)
+    log.info("MCP endpoint mounted at %s (streamable HTTP, %s)", prefix, auth_note)
     return True
 
 

@@ -41,7 +41,6 @@ def sandbox(tmp_path, monkeypatch):
 
 def run_setup(sandbox, **kwargs):
     kwargs.setdefault("endpoint", ENDPOINT)
-    kwargs.setdefault("token", TOKEN)
     kwargs.setdefault("project_root", sandbox / "proj")
     return install.setup(**kwargs)
 
@@ -68,13 +67,15 @@ def test_setup_writes_a_remote_url_not_a_command(sandbox):
     assert "url" in entry, entry
     assert entry["url"] == f"{ENDPOINT}/mcp"
     assert "command" not in entry, "a local stdio command was registered"
-    assert entry["headers"]["Authorization"] == f"Bearer {TOKEN}"
+    assert "headers" not in entry, "auth header written for an open endpoint"
 
 
-def test_setup_refuses_to_write_without_a_token(sandbox):
-    report = run_setup(sandbox, token="")
-    assert any(not a.ok for a in report.actions)
-    assert not (sandbox / ".cursor" / "mcp.json").exists()
+def test_setup_writes_no_auth_header_for_the_mvp(sandbox):
+    """The endpoint is open on the owner's own box; a header buys nothing yet."""
+    run_setup(sandbox)
+    entry = json.loads((sandbox / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
+    entry = entry["mcpServers"]["shadowscribe"]
+    assert entry == {"url": f"{ENDPOINT}/mcp"}, entry
 
 
 # --------------------------------------------------------------- mcp merging

@@ -262,13 +262,7 @@ def cmd_recordings(args) -> int:
 
 
 def cmd_setup(args) -> int:
-    """Wire the desktop once: MCP registration + the static instruction.
-
-    Nothing here needs re-running. That is the design goal — a command you must
-    remember to run every morning makes the user the transport layer between
-    their own day and their own tools, which is exactly what this project exists
-    to remove.
-    """
+    """接通编辑器。跑一次，之后不用再管。"""
     from . import install as install_mod
 
     cfg = ClientConfig.load(
@@ -276,40 +270,26 @@ def cmd_setup(args) -> int:
     )
     report = install_mod.setup(
         endpoint=cfg.endpoint,
-        token=cfg.token,
         project_root=Path(args.root).resolve() if args.root else None,
     )
 
-    print("==> MCP 端点（编辑器直接连服务器，本机不装任何东西）")
-    print(f"    {report.mcp_url}")
     for action in report.actions:
         if action.label.startswith("MCP"):
-            print(f"  [{'OK  ' if action.ok else 'FAIL'}] {action.label:<24} {action.detail}")
-
-    print()
-    print("==> 静态指令（内容永不变化，所以永远不需要重跑）")
+            mark = "OK  " if action.ok else "FAIL"
+            print(f"[{mark}] MCP   {action.detail}")
+    print(f"[OK  ] 端点  {report.mcp_url}")
     for action in report.actions:
         if action.label.startswith("规则"):
-            print(f"  [{'OK  ' if action.ok else 'FAIL'}] {action.label:<24} {action.detail}")
-
-    print()
-    print("==> 还剩一步需要你手动做一次")
-    print("    打开 Cursor → Customize → Rules → User Rules，粘贴下面这段：")
-    print()
-    for line in report.user_rules_hint.splitlines():
-        print(f"      {line}")
-    print()
-    print("    为什么必须手动：Cursor 唯一有文档保证的全局机制是 User Rules，")
-    print("    它存在 Cursor 自己的数据库里，没有公开的文件接口。")
-    print("    粘贴一次，之后所有项目、所有新会话都自动生效。")
+            mark = "OK  " if action.ok else "FAIL"
+            print(f"[{mark}] 规则  {action.detail}")
 
     if report.failures:
-        print()
-        print(f"  {len(report.failures)} 项没成功，看上面的 FAIL 行。")
+        print(f"\n{len(report.failures)} 项失败，看上面的 FAIL。")
         return 1
 
-    print()
-    print("==> 完成。重启 Cursor 让它加载新的 MCP 配置，之后你不需要再运行任何影书命令。")
+    print("\n重启 Cursor，然后在会话里问一句「我今天答应了谁什么」。")
+    print("（想让所有项目都生效，可选：把下面这行贴进 Cursor → Settings → Rules → User Rules）")
+    print(f"  {report.user_rules_hint.splitlines()[0]}")
     return 0
 
 

@@ -4,9 +4,7 @@ There is very little to do here, and that is the point. The MCP server runs *on
 the server*, next to the memory it serves, so the desktop needs no package, no
 daemon and no proxy — only a URL:
 
-    { "mcpServers": { "shadowscribe": {
-        "url": "http://<host>:18080/mcp",
-        "headers": { "Authorization": "Bearer <SS_TOKEN>" } } } }
+    { "mcpServers": { "shadowscribe": { "url": "http://<host>:18080/mcp" } } }
 
 An earlier version of this module installed a stdio MCP server into the user's
 Python and registered *that* as the command, which then proxied back to this same
@@ -98,7 +96,7 @@ def mcp_url(endpoint: str) -> str:
 # ------------------------------------------------------------------- writing
 
 
-def _merge_mcp_config(path: Path, url: str, token: str) -> ActionResult:
+def _merge_mcp_config(path: Path, url: str) -> ActionResult:
     """Add (or refresh) our entry, preserving every other server.
 
     The user's file already holds unrelated servers, often with credentials
@@ -123,14 +121,16 @@ def _merge_mcp_config(path: Path, url: str, token: str) -> ActionResult:
 
         servers = data.setdefault("mcpServers", {})
         existing = servers.get(SERVER_NAME)
-        entry = {"url": url, "headers": {"Authorization": f"Bearer {token}"}}
+        # No auth header: the endpoint is open for the MVP. A token in an editor
+        # config is friction with no benefit while this is one person's own box.
+        entry = {"url": url}
         if existing == entry:
             return ActionResult(True, label, f"already registered ({len(servers)} servers)")
 
         servers[SERVER_NAME] = entry
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         verb = "updated" if existing else "added"
-        return ActionResult(True, label, f"{verb} → {path}  ({len(servers)} servers total)")
+        return ActionResult(True, label, f"{verb} → {path}")
     except OSError as exc:
         return ActionResult(False, label, str(exc))
 
@@ -154,7 +154,6 @@ def user_rules_text() -> str:
 def setup(
     *,
     endpoint: str,
-    token: str,
     project_root: Path | None = None,
     global_scope: bool = True,
 ) -> SetupReport:
@@ -163,11 +162,8 @@ def setup(
     url = mcp_url(endpoint)
     report = SetupReport(mcp_url=url)
 
-    if not token:
-        report.add(False, "MCP · 配置", "token 为空，无法写入 Authorization 头")
-    else:
-        report.actions.append(_merge_mcp_config(cursor_mcp_path(), url, token))
-        report.actions.append(_merge_mcp_config(claude_desktop_config_path(), url, token))
+    report.actions.append(_merge_mcp_config(cursor_mcp_path(), url))
+    report.actions.append(_merge_mcp_config(claude_desktop_config_path(), url))
 
     # Project-scoped: the only location Cursor documents as guaranteed.
     cursor_target = inject_mod.TARGETS["cursor"]

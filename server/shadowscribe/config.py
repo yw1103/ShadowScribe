@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     max_upload_mb: int = 2048
     cors_origins: str = "*"
 
+    mcp_require_token: bool = False
+    """Gate ``/mcp`` behind the bearer token. Off for the MVP: this is a
+    single-user tool on the owner's own machine, and a header in an editor config
+    buys nothing yet. Turn it on before the endpoint stops being private."""
+
     # -------------------------------------------------------------------- asr
     whisper_model: str = "small"
     """faster-whisper model name or local path. ``small`` boots fast; ``large-v3``
@@ -109,9 +114,11 @@ class Settings(BaseSettings):
     """Skip windows shorter than this — usually silence or a door slamming."""
 
     # ----------------------------------------------------------------- memory
-    memory_backend: str = "causal-memory"
-    """``causal-memory`` (recommended, uses the causal-memory PyO3 bindings) or
+    memory_backend: str = (
+        "causal-memory"
+        """``causal-memory`` (recommended, uses the causal-memory PyO3 bindings) or
     ``native`` (built-in SQLite fallback so the stack still runs standalone)."""
+    )
 
     memory_db: str = ""
     """Path to the causal-memory SQLite store. Empty → ``<data_dir>/memory/causal.db``."""

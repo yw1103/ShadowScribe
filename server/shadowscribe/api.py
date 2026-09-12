@@ -695,27 +695,47 @@ async def enroll_speaker(
     label: str = Form("主人"),
 ):
     """Enroll the owner's voiceprint — the physical key to 原则二."""
-    from .pipeline.audio import normalize
+    from .pipeline.audio import AudioError, ffmpeg_available, normalize
     from .pipeline.diarize import SpeakerEmbedder
+
+    # Check prerequisites *before* accepting the sample. Failing after a 60 s
+    # upload wastes the transfer, and an unhandled AudioError surfaces as an
+    # opaque 500 instead of telling the operator which piece is missing.
+    if not ffmpeg_available():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "ffmpeg is not available on the server, so the enrolment sample cannot be "
+                "decoded. Install it (`apt-get install -y ffmpeg`) or use the official image."
+            ),
+        )
+
+    embedder = SpeakerEmbedder(settings)
+    if not embedder.available:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "speaker embedding model unavailable. Install sherpa-onnx and place a "
+                "speaker-embedding .onnx under SS_SPEAKER_MODEL_DIR."
+            ),
+        )
 
     tmp_raw = settings.raw_dir / f".enroll-{uuid.uuid4().hex}"
     await _stream_to(tmp_raw, _iter_upload(file))
     tmp_wav = settings.audio_dir / f".enroll-{uuid.uuid4().hex}.wav"
     try:
-        info = normalize(tmp_raw, tmp_wav)
-        embedder = SpeakerEmbedder(settings)
-        if not embedder.available:
+        try:
+            info = normalize(tmp_raw, tmp_wav)
+        except AudioError as exc:
             raise HTTPException(
-                status_code=503,
-                detail=(
-                    "speaker embedding model unavailable. Install sherpa-onnx and place a "
-                    "speaker-embedding .onnx under SS_SPEAKER_MODEL_DIR."
-                ),
-            )
+                status_code=422, detail=f"could not decode the enrolment sample: {exc}"
+            ) from exc
+
         vec = embedder.embed_wav(tmp_wav)
         if vec is None:
             raise HTTPException(
-                status_code=422, detail="could not extract a voiceprint (audio too short?)"
+                status_code=422,
+                detail="could not extract a voiceprint (audio too short or too noisy)",
             )
 
         with Session(get_engine()) as session:

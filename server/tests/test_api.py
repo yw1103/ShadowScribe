@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from tests.conftest import AUTH, SILENT_WAV
 
 # ------------------------------------------------------------------ liveness
@@ -218,6 +220,16 @@ def test_unknown_recording_is_404(client):
 
 
 def test_speakers_empty_then_enroll_without_model(client):
+    """Enrolment must fail *before* consuming the upload, naming the missing piece.
+
+    This is deliberately environment-independent: on a host without ffmpeg or
+    without the sherpa model the answer is 503 with an actionable detail, never an
+    unhandled AudioError turning into a bare 500 after a 60 s transfer.
+    """
+    from shadowscribe.config import settings
+    from shadowscribe.pipeline.audio import ffmpeg_available
+    from shadowscribe.pipeline.diarize import SpeakerEmbedder
+
     assert client.get("/v1/speakers", headers=AUTH).json()["count"] == 0
 
     resp = client.post(
@@ -226,9 +238,18 @@ def test_speakers_empty_then_enroll_without_model(client):
         files={"file": ("me.wav", SILENT_WAV, "audio/wav")},
         data={"label": "主人"},
     )
-    # No ffmpeg / no sherpa model in CI: the route must fail loudly and specifically,
-    # never silently pretend enrollment worked.
-    assert resp.status_code in (422, 503, 500)
+    assert resp.status_code == 503, resp.text
+
+    detail = resp.json()["detail"]
+    if not ffmpeg_available():
+        assert "ffmpeg" in detail
+    elif not SpeakerEmbedder(settings).available:
+        assert "speaker embedding" in detail
+    else:
+        pytest.skip("host has a working ffmpeg + speaker model; nothing to assert")
+
+    # a rejected enrolment must not leave a half-written voiceprint behind
+    assert client.get("/v1/speakers", headers=AUTH).json()["count"] == 0
 
 
 # --------------------------------------------------------------------- brief

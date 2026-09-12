@@ -27,30 +27,31 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Dependencies go in their own layer, installed against a stub package. Editing
-# shadowscribe/ then only invalidates the final install (seconds) instead of
-# re-resolving ctranslate2 and friends over a slow link (a minute).
-#
-# Two things this MUST get right, both learned the hard way:
-#   * the final install needs --force-reinstall, because pip sees the same version
-#     number already installed and would otherwise silently keep the empty stub,
-#     producing an image that builds fine and crashes on import;
-#   * the build asserts the real package imports, so that failure is a build
-#     error rather than a runtime surprise.
 COPY pyproject.toml README.md ./
-RUN mkdir -p shadowscribe && touch shadowscribe/__init__.py \
- && pip install --index-url "${PIP_INDEX_URL}" . \
+COPY shadowscribe ./shadowscribe
+
+# One install layer, deliberately.
+#
+# A previous attempt split this in two (install deps against a stub package, then
+# copy the real source and reinstall) to cache the heavy dependency resolution
+# separately from source edits. It is not worth it: setuptools reuses /app/build,
+# and because COPY rewrites source mtimes it silently skipped re-copying
+# __init__.py, so the image shipped a zero-byte stub. The build succeeded and the
+# container crash-looped. A minute of rebuild time is cheaper than that class of
+# bug.
+RUN pip install --index-url "${PIP_INDEX_URL}" . \
  && if [ "${INSTALL_MEMORY_BACKEND}" = "true" ]; then \
       pip install --index-url "${PIP_INDEX_URL}" 'causal-memory>=0.9.3' ; \
     fi \
  && if [ "${INSTALL_SPEAKERS}" = "true" ]; then \
       pip install --index-url "${PIP_INDEX_URL}" 'sherpa-onnx>=1.10' 'numpy>=1.24' ; \
-    fi \
- && rm -rf shadowscribe
+    fi
 
-COPY shadowscribe ./shadowscribe
-RUN pip install --index-url "${PIP_INDEX_URL}" --no-deps --force-reinstall . \
- && python -c "import shadowscribe.api, shadowscribe.service, shadowscribe.worker as w; print('shadowscribe package installed and importable')"
+# Assert the *installed* package is real. Must run outside /app: with cwd=/app the
+# source tree shadows site-packages and the check would pass on a broken image.
+RUN cd /tmp && python -c "\
+import shadowscribe, shadowscribe.api, shadowscribe.service, shadowscribe.worker, shadowscribe.cli; \
+print('shadowscribe', shadowscribe.__version__, 'installed and importable from', shadowscribe.__file__)"
 
 RUN mkdir -p /data/audio /data/raw /data/models /data/memory
 

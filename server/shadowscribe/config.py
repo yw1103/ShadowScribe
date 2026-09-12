@@ -114,11 +114,9 @@ class Settings(BaseSettings):
     """Skip windows shorter than this — usually silence or a door slamming."""
 
     # ----------------------------------------------------------------- memory
-    memory_backend: str = (
-        "causal-memory"
-        """``causal-memory`` (recommended, uses the causal-memory PyO3 bindings) or
+    memory_backend: str = "causal-memory"
+    """``causal-memory`` (recommended, uses the causal-memory PyO3 bindings) or
     ``native`` (built-in SQLite fallback so the stack still runs standalone)."""
-    )
 
     memory_db: str = ""
     """Path to the causal-memory SQLite store. Empty → ``<data_dir>/memory/causal.db``."""

@@ -51,10 +51,16 @@ class Transcriber:
         if self._model is not None:
             return self._model
 
-        # Must happen before huggingface_hub resolves its endpoint.
+        # Both must be set before huggingface_hub resolves its config. Setting
+        # them later has no effect, which is why nothing else in the codebase is
+        # allowed to import huggingface_hub directly.
         if self.s.hf_endpoint:
             os.environ.setdefault("HF_ENDPOINT", self.s.hf_endpoint)
             os.environ.setdefault("HUGGINGFACE_HUB_ENDPOINT", self.s.hf_endpoint)
+        if self.s.hf_disable_xet:
+            # Mirrors do not proxy cas-server.xethub.hf.co; without this the
+            # download dies with a 401 that looks nothing like a mirror problem.
+            os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
         from faster_whisper import WhisperModel
 

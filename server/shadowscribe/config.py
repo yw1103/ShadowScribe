@@ -65,6 +65,15 @@ class Settings(BaseSettings):
     hf_endpoint: str = "https://hf-mirror.com"
     """Model hub mirror. Defaults to hf-mirror so mainland hosts can download."""
 
+    hf_disable_xet: bool = True
+    """Force classic HTTP downloads instead of HuggingFace's Xet protocol.
+
+    Newer ``huggingface_hub`` releases route large files through Xet
+    (``cas-server.xethub.hf.co``), which mirrors such as hf-mirror.com do not
+    proxy — the download then fails with an opaque 401. Leaving this on is what
+    makes model bootstrap actually work in mainland China.
+    """
+
     asr_cpu_threads: int = 0
     """0 = let ctranslate2 decide (uses every core)."""
 

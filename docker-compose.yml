@@ -49,6 +49,10 @@ services:
     env_file: [.env]
     environment:
       SS_ROLE: worker
+    # The image's HEALTHCHECK probes the HTTP API, which the worker does not
+    # serve — inheriting it would mark a perfectly healthy worker unhealthy.
+    healthcheck:
+      disable: true
     volumes:
       - ss-data:/data
     logging:

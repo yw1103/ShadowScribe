@@ -1,14 +1,16 @@
 """``ss`` — the desktop command line.
 
-The whole point: the user sits down, types four characters, and the AI's context
-window already contains today's reality.
+The desktop is deliberately thin. The memory, the MCP server and the reasoning all
+live on the server; this tool exists for the things a command line is better at
+than an editor — pointing a new machine at the server, and peeking at the context
+card by hand.
 
     ss login --endpoint http://host:18080 --token ...
-    ss brief                     # print the context card
-    ss inject --auto             # write it into Cursor / CLAUDE.md / AGENTS.md
+    ss setup                     # 【跑一次】让编辑器直连服务器的 MCP
+    ss doctor                    # 自检整条链路
+    ss brief --copy              # 手动看一眼上下文卡片
     ss commitments               # what did I promise?
     ss search 登录页
-    ss mcp                       # stdio MCP server for Cursor / Claude Desktop
 """
 
 from __future__ import annotations
@@ -269,11 +271,17 @@ def cmd_setup(args) -> int:
     """
     from . import install as install_mod
 
-    report = install_mod.setup(project_root=Path(args.root).resolve() if args.root else None)
-    command = install_mod.resolve_server_command()
+    cfg = ClientConfig.load(
+        endpoint=getattr(args, "endpoint", None), token=getattr(args, "token", None)
+    )
+    report = install_mod.setup(
+        endpoint=cfg.endpoint,
+        token=cfg.token,
+        project_root=Path(args.root).resolve() if args.root else None,
+    )
 
-    print("==> MCP 注册（编辑器从这里找到影书）")
-    print(f"    命令：{' '.join(command)}")
+    print("==> MCP 端点（编辑器直接连服务器，本机不装任何东西）")
+    print(f"    {report.mcp_url}")
     for action in report.actions:
         if action.label.startswith("MCP"):
             print(f"  [{'OK  ' if action.ok else 'FAIL'}] {action.label:<24} {action.detail}")
@@ -301,8 +309,7 @@ def cmd_setup(args) -> int:
         return 1
 
     print()
-    print("==> 完成。日常你不需要再运行任何影书命令 ——")
-    print("    在 Cursor 里直接说事，它会自己调 get_reality_context。")
+    print("==> 完成。重启 Cursor 让它加载新的 MCP 配置，之后你不需要再运行任何影书命令。")
     return 0
 
 
@@ -343,11 +350,25 @@ def cmd_inject(args) -> int:
     return 0
 
 
-def cmd_mcp(args) -> int:
-    from .mcp_server import run
+def _probe_mcp(cfg) -> tuple[bool, str]:
+    """Check the server's MCP endpoint answers an unauthenticated GET.
 
-    run()
-    return 0
+    A 401 is the *success* case: it proves the endpoint is mounted and that its
+    bearer gate is live. A 404 means the server is running an older build without
+    the MCP extra installed.
+    """
+    import httpx
+
+    url = cfg.endpoint.rstrip("/") + "/mcp"
+    try:
+        resp = httpx.get(url, timeout=10.0)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"{url} 不可达（{type(exc).__name__}）"
+    if resp.status_code == 404:
+        return False, f"{url} → 404（服务端没装 mcp 额外依赖）"
+    if resp.status_code in (401, 403, 400, 406):
+        return True, f"{url} → {resp.status_code}（已挂载，需 token）"
+    return True, f"{url} → {resp.status_code}"
 
 
 def cmd_doctor(args) -> int:
@@ -445,14 +466,10 @@ def cmd_doctor(args) -> int:
     if not detected:
         hints.append("当前目录没有编辑器标记文件；`ss inject --target cursor` 可显式指定")
 
-    try:
-        import mcp  # noqa: F401
-
-        rows.append((True, "MCP 依赖", "已安装（`ss mcp` 可用）"))
-    except ImportError:
-        rows.append((False, "MCP 依赖", "未安装"))
-        hints.append('想用 MCP：pip install "shadowscribe-client[mcp]"')
-
+    mcp_probe = _probe_mcp(cfg)
+    rows.append((mcp_probe[0], "MCP 端点", mcp_probe[1]))
+    if not mcp_probe[0]:
+        hints.append("服务端 MCP 没起来（需要装 server 的 mcp 额外依赖），或因网穿透没通")
     width = max(len(name) for _, name, _ in rows)
     failures = 0
     for ok, name, detail in rows:
@@ -549,9 +566,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="print the block, write nothing")
     p.add_argument("--remove", action="store_true", help="strip the managed block")
     p.set_defaults(func=cmd_inject)
-
-    p = sub.add_parser("mcp", help="run the stdio MCP server")
-    p.set_defaults(func=cmd_mcp)
 
     p = sub.add_parser("doctor", help="自检：配置 / 网络 / 鉴权 / 数据 / 编辑器 / MCP")
     p.set_defaults(func=cmd_doctor)

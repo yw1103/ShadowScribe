@@ -148,8 +148,8 @@
         │          电脑工作台（状态 C）               │
         │                                           │
         │  ss brief      打印上下文卡片 / 复制        │
-        │  ss inject     写进 Cursor / CLAUDE.md     │
-        │  ss mcp        MCP server，编辑器自动拉取   │
+        │  ss inject     写进编辑器（没有 MCP 时用）   │
+        │  编辑器直连服务器的 /mcp 端点               │
         │                                           │
         │  ▼ 新会话直接输入：「写测试用例」            │
         │  ▼ AI 已经知道今天聊了什么、你承诺了什么     │
@@ -214,46 +214,48 @@ SS_TOKEN=<你的token> ./scripts/verify_e2e.sh /path/to/some.m4a --hint "与老�
 这段合成对话刻意包含了 3 个承诺、2 个决策和 1 条教训型因果——
 正确的抽取应该在每个类别都有产出。
 
-### 2. 起电脑端
+### 2. 接上电脑端 —— 本机什么都不用装
 
-> 客户端**尚未发布到 PyPI**，所以用仓库内的一键脚本安装（它会依次尝试
-> PyPI → 本地仓库 → GitHub，你不需要关心走哪条）。
+**MCP 服务跑在服务器上**，所以你的电脑只需要一条配置。把下面这段贴进
+`~/.cursor/mcp.json`（或 Cursor → Customize → MCP）：
 
-**Windows**：双击 `scripts\setup-client.cmd`，按提示填地址和 token。
-或者在 PowerShell 里：
-
-```powershell
-cd ShadowScribe\scripts
-.\setup-client.cmd http://<你的服务器>:18080 <SS_TOKEN>
+```json
+{
+  "mcpServers": {
+    "shadowscribe": {
+      "url": "http://<你的服务器>:18080/mcp",
+      "headers": { "Authorization": "Bearer <SS_TOKEN>" }
+    }
+  }
+}
 ```
 
-**macOS / Linux**
+重启 Cursor，完事。**没有 pip install、没有本地进程、没有代理。**
 
-```bash
-./scripts/setup-client.sh --endpoint http://<你的服务器>:18080 --token <SS_TOKEN>
-```
-
-手工安装（任选其一）：
-
-```bash
-pip install ".\client[mcp]"                     # 在仓库目录内
-pip install "shadowscribe-client[mcp] @ git+https://github.com/yw1103/ShadowScribe.git#subdirectory=client"
-```
+> 这一步可以用脚本自动完成，顺便把下面那段静态指令也写好：
+>
+> ```powershell
+> .\scripts\setup-client.cmd http://<你的服务器>:18080 <SS_TOKEN>   # Windows，可双击
+> ./scripts/setup-client.sh --endpoint http://<你的服务器>:18080 --token <SS_TOKEN>
+> ```
 
 ### 3. 用起来
 
-跑一次接线，之后**你不需要再运行任何影书命令**：
-
-```bash
-ss setup            # 注册 MCP + 写一段永不变化的静态指令
-```
-
-然后在 Cursor / Claude 里**直接说事**，它会自己去调 `get_reality_context`：
+在 Cursor / Claude 里**直接说事**，它会自己去调 `get_reality_context`：
 
 > **你**：写测试用例
 >
 > **AI**：（自己拉了今天的现实上下文）…基于老王反馈的 Safari 白屏和周四的修复承诺，
 > 我先写兼容性回归用例…
+
+唯一需要手动一次的，是把下面这段贴进 **Cursor → Customize → Rules → User Rules**
+（Cursor 唯一有文档保证的全局机制，没有公开的文件接口）：
+
+```markdown
+**开始处理任务前，先调用 `get_reality_context`。**
+用户的指令通常很短、缺背景 —— 背景不在他脑子里等你追问，而在影书里。
+**不要反问"你指的是什么"，先拉上下文。**
+```
 
 想亲眼看看最近发生了什么（不写任何文件）：
 
@@ -438,7 +440,7 @@ ShadowScribe/
 │   │   ├── worker.py              # 作业队列消费
 │   │   └── cli.py                 # shadowscribe 运维命令
 │   └── Dockerfile
-├── client/                        # 电脑端：ss CLI + MCP server
+├── client/                        # 电脑端：ss CLI（MCP 在服务端，本机零安装）
 │   └── shadowscribe_client/
 │       ├── cli.py
 │       ├── inject.py              # 写进 Cursor / CLAUDE.md 等

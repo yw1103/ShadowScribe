@@ -1,64 +1,38 @@
-"""``ss setup`` — wire the desktop side once, then never think about it again.
+"""``ss setup`` — point the editor at the server's MCP endpoint.
 
-The desktop has two independent pieces, and only one of them is per-machine:
+There is very little to do here, and that is the point. The MCP server runs *on
+the server*, next to the memory it serves, so the desktop needs no package, no
+daemon and no proxy — only a URL:
 
-* **MCP registration** — tells the editor where the ``shadowscribe`` server is.
-  Written once per editor, never changes.
-* **The static instruction** — tells the agent *when* to call it. Contains no
-  memories, so it never goes stale either.
+    { "mcpServers": { "shadowscribe": {
+        "url": "http://<host>:18080/mcp",
+        "headers": { "Authorization": "Bearer <SS_TOKEN>" } } } }
 
-Neither needs to be re-run. That is the whole point: 原则三 says the user should
-never be the transport layer between their own day and their own tools, and a
-command you must remember to run every morning makes you exactly that.
+An earlier version of this module installed a stdio MCP server into the user's
+Python and registered *that* as the command, which then proxied back to this same
+server over HTTP. Every step was avoidable, and it made the laptop a participant
+in a system whose whole design is that the laptop is a thin reader.
 
-Where the instruction can live, and what each is actually worth:
-
-| Location | Scope | Documented? |
-|---|---|---|
-| ``<project>/.cursor/rules/*.mdc`` | one repo | ✅ Cursor project rules |
-| ``<project>/AGENTS.md`` | one repo | ✅ Cursor + Codex + others |
-| ``~/.claude/CLAUDE.md`` | all projects | ✅ Claude Code user memory |
-| ``~/.cursor/rules/`` | all projects | ❌ undocumented — written as best effort |
-| Cursor → Customize → Rules → User Rules | all projects | ✅ but UI-only, no public file |
-
-The last row is why :func:`setup` prints paste-ready text: Cursor's only
-*documented* global mechanism lives in its internal store, so the honest answer
-is "paste these six lines once", not "I wrote a file, trust me".
+One small file is still written locally: a static instruction telling the agent
+*when* to call the tools. Registering an MCP server answers "where", not "when" —
+an agent that never calls a tool has been given nothing.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import inject as inject_mod
 
-#: Name the editor sees. Must match what `ss mcp` registers itself as.
+#: Name the editor sees. Must match what the server calls its MCP server.
 SERVER_NAME = "shadowscribe"
 
-
-def resolve_server_command() -> list[str]:
-    """Build an absolute command line for the MCP server.
-
-    Absolute on purpose: an editor launched from the Start Menu inherits a
-    different environment than the terminal that installed us, so a bare ``ss``
-    frequently is not on its PATH. Prefer the entry point beside *this*
-    interpreter — on Linux a PATH lookup can otherwise find iproute2's ``ss``.
-    """
-    here = Path(sys.executable).parent
-    for name in ("ss.exe", "ss"):
-        candidate = here / name
-        if candidate.is_file():
-            return [str(candidate), "mcp"]
-    found = shutil.which("ss")
-    if found:
-        return [found, "mcp"]
-    # Last resort: run the module through the interpreter we are running under.
-    return [sys.executable, "-m", "shadowscribe_client.cli", "mcp"]
+#: Where the MCP endpoint is mounted, relative to the server base URL.
+MCP_PATH = "/mcp"
 
 
 @dataclass
@@ -72,6 +46,7 @@ class ActionResult:
 class SetupReport:
     actions: list[ActionResult] = field(default_factory=list)
     user_rules_hint: str = ""
+    mcp_url: str = ""
 
     def add(self, ok: bool, label: str, detail: str) -> None:
         self.actions.append(ActionResult(ok, label, detail))
@@ -116,15 +91,19 @@ def claude_code_memory_path() -> Path:
     return Path.home() / ".claude" / "CLAUDE.md"
 
 
+def mcp_url(endpoint: str) -> str:
+    return endpoint.rstrip("/") + MCP_PATH
+
+
 # ------------------------------------------------------------------- writing
 
 
-def _merge_mcp_config(path: Path, server_command: list[str]) -> ActionResult:
+def _merge_mcp_config(path: Path, url: str, token: str) -> ActionResult:
     """Add (or refresh) our entry, preserving every other server.
 
-    The user's file already holds unrelated servers with credentials in them —
-    rewriting it wholesale would destroy that, so this reads, merges, backs up,
-    and writes.
+    The user's file already holds unrelated servers, often with credentials
+    inline — rewriting it wholesale would destroy that, so this reads, merges,
+    backs up, and writes. A file it cannot parse is reported, not overwritten.
     """
     label = f"MCP · {path.name}"
     try:
@@ -144,7 +123,7 @@ def _merge_mcp_config(path: Path, server_command: list[str]) -> ActionResult:
 
         servers = data.setdefault("mcpServers", {})
         existing = servers.get(SERVER_NAME)
-        entry = {"command": server_command[0], "args": server_command[1:]}
+        entry = {"url": url, "headers": {"Authorization": f"Bearer {token}"}}
         if existing == entry:
             return ActionResult(True, label, f"already registered ({len(servers)} servers)")
 
@@ -174,17 +153,21 @@ def user_rules_text() -> str:
 
 def setup(
     *,
+    endpoint: str,
+    token: str,
     project_root: Path | None = None,
-    server_command: list[str] | None = None,
     global_scope: bool = True,
 ) -> SetupReport:
-    """Wire MCP + write the static instruction. Idempotent."""
+    """Point the editors at the server's MCP endpoint and write the instruction."""
     root = project_root or Path.cwd()
-    command = server_command or resolve_server_command()
-    report = SetupReport()
+    url = mcp_url(endpoint)
+    report = SetupReport(mcp_url=url)
 
-    report.actions.append(_merge_mcp_config(cursor_mcp_path(), command))
-    report.actions.append(_merge_mcp_config(claude_desktop_config_path(), command))
+    if not token:
+        report.add(False, "MCP · 配置", "token 为空，无法写入 Authorization 头")
+    else:
+        report.actions.append(_merge_mcp_config(cursor_mcp_path(), url, token))
+        report.actions.append(_merge_mcp_config(claude_desktop_config_path(), url, token))
 
     # Project-scoped: the only location Cursor documents as guaranteed.
     cursor_target = inject_mod.TARGETS["cursor"]

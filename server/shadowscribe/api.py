@@ -814,6 +814,11 @@ def create_app():
     )
     app.include_router(router)
 
+    # Editors connect straight to this server; nothing is installed on the laptop.
+    from .mcp_surface import mount_mcp
+
+    mcp_mounted = mount_mcp(app, settings)
+
     @app.get("/healthz", include_in_schema=False)
     def healthz():
         return {"ok": True, "service": "shadowscribe", "version": __version__}
@@ -827,6 +832,7 @@ def create_app():
             "docs": "/docs",
             "ingest": "/v1/ingest/audio",
             "brief": "/v1/context/brief",
+            "mcp": "/mcp" if mcp_mounted else None,
             "memory_backend": get_backend(settings).name,
             "dev_token": settings.effective_token if settings.dev_token_generated else None,
         }

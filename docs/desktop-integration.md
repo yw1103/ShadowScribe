@@ -132,30 +132,34 @@ ss inject --auto             # 写进编辑器规则文件
 
 ---
 
-## 3. MCP 工具清单
+## 3. MCP —— 服务在服务器上，本机只写一条 URL
 
-`ss setup` 已经帮你注册好了。手工注册的话，配置长这样：
+MCP 端点和它服务的记忆跑在**同一个进程**里（服务器上的 `mcp_surface.py`），
+所以电脑端不需要装包、不需要起进程、不需要代理：
 
 ```json
 {
   "mcpServers": {
     "shadowscribe": {
-      "command": "ss",
-      "args": ["mcp"]
+      "url": "http://<服务器>:18080/mcp",
+      "headers": { "Authorization": "Bearer <SS_TOKEN>" }
     }
   }
 }
 ```
 
-写入位置：
+`ss setup` 会替你写好。写入位置：
 
 - **Cursor**：`~/.cursor/mcp.json`（全局）或项目内 `.cursor/mcp.json`
 - **Claude Desktop**：macOS `~/Library/Application Support/Claude/claude_desktop_config.json`
   · Windows `%APPDATA%\Claude\claude_desktop_config.json`
-- **Claude Code**：`claude mcp add shadowscribe -- ss mcp`
 
-> `ss setup` 写入的是 `ss` 的**绝对路径**而不是裸 `ss`：从开始菜单启动的编辑器
-> 继承的环境和你装客户端的那个终端不一样，裸命令经常找不到。
+> 早先的版本在客户端包里塞了一个 stdio MCP 服务，再由它 HTTP 代理回服务器。
+> 那是多余的一跳，还迫使一台只需要 URL 的机器去 `pip install`。已删除。
+>
+> 端点同时接受 `/mcp` 和 `/mcp/`：Starlette 的 `Mount` 编译出来是
+> `^/mcp/…$`，裸 `/mcp` 会撞上 307 重定向，而 MCP 客户端会不会带着
+> JSON-RPC body 跟随重定向是不确定的，所以服务端做了路径重写。
 
 #### 暴露的工具
 

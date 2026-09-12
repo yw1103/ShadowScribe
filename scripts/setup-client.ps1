@@ -120,17 +120,31 @@ if ($NoInstall) {
     }
 
     $installed = $false
+    $locked = $false
     foreach ($src in $sources) {
         Say "    尝试：$($src.Label)"
         $prev = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
-        & $python -m pip install --user --upgrade $src.Spec 2>&1 |
-            Select-String -NotMatch 'already satisfied|RemoteException|^\s*$' |
-            Select-Object -Last 3 | ForEach-Object { Say "      $_" }
+        # --force-reinstall --no-cache-dir on purpose. The version number does not
+        # change between our commits, and both pip's wheel cache and setuptools'
+        # build/ directory are keyed on it — without these flags a reinstall
+        # silently keeps the previous code, which cost an hour of confusion once.
+        $log = & $python -m pip install --user --upgrade --force-reinstall --no-cache-dir $src.Spec 2>&1
         $code = $LASTEXITCODE
         $ErrorActionPreference = $prev
+        $log | Select-String -NotMatch 'already satisfied|RemoteException|^\s*$' |
+            Select-Object -Last 3 | ForEach-Object { Say "      $_" }
         if ($code -eq 0) { Good "从 $($src.Label) 安装成功"; $installed = $true; break }
+        if ($log -match 'WinError 32|being used by another process|另一个程序正在使用') { $locked = $true }
         Warn "$($src.Label) 不可用，试下一个"
+    }
+    if ($locked) {
+        # Seen in practice: Cursor had the *old* stdio MCP server running and was
+        # holding ss.exe open, so pip could not replace it and aborted the whole
+        # upgrade while still printing "Successfully built".
+        Say ""
+        Warn "ss.exe 正被占用 —— 通常是 Cursor 还在跑上一次注册的 MCP 服务"
+        Say "         关掉 Cursor，然后重跑本脚本（或先手动结束 ss.exe 进程）" -ForegroundColor DarkGray
     }
     if (-not $installed) {
         Die "三个来源都装不上" @"

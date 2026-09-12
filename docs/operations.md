@@ -358,7 +358,10 @@ ss inject --auto
 ```json
 {
   "mcpServers": {
-    "shadowscribe": { "command": "ss", "args": ["mcp"] }
+    "shadowscribe": {
+      "url": "http://<服务器>:18080/mcp",
+      "headers": { "Authorization": "Bearer <SS_TOKEN>" }
+    }
   }
 }
 ```

@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "shadowscribe-client"
 version = "0.1.0"
-description = "影书 ShadowScribe desktop client — `ss` CLI and MCP server for zero-context-overhead AI sessions"
+description = "影书 ShadowScribe desktop client — the `ss` CLI. The MCP server runs on the ShadowScribe server itself."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "ShadowScribe contributors" }]
-keywords = ["mcp", "context", "memory", "cursor", "claude", "cli"]
+keywords = ["context", "memory", "cursor", "claude", "cli", "causal"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -25,7 +25,6 @@ classifiers = [
 dependencies = ["httpx>=0.27"]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.0"]
 dev = ["pytest>=8.0", "ruff>=0.4"]
 
 [project.scripts]

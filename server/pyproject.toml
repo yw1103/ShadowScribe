@@ -44,6 +44,9 @@ dependencies = [
 memory = ["causal-memory>=0.9.3"]
 # Voiceprint-based owner/guest attribution (原则二 groundwork).
 speakers = ["sherpa-onnx>=1.10", "numpy>=1.24"]
+# Serves the MCP endpoint at /mcp, so an editor connects straight to this server
+# and needs nothing installed on the laptop.
+mcp = ["mcp>=1.0"]
 dev = [
   "pytest>=8.0",
   "pytest-asyncio>=0.23",

@@ -23,7 +23,12 @@
 |---|---|---|
 | **A · 静默因果沉淀** | `pipeline/runner.py::Pipeline.process` | 异步作业队列 |
 | **B · 声纹授权执行** | *二期*；声纹能力已在 `pipeline/diarize.py` | — |
-| **C · 电脑工作贯通** | `service.py::build_brief` + `client/` | CLI / MCP 主动拉取 |
+| **C · 电脑工作贯通** | 服务端的 `/mcp`（`mcp_surface.py`）+ `client/` CLI | 编辑器直连服务器 |
+
+> **MCP 端点跑在服务器上**（`server/shadowscribe/mcp_surface.py`），和它服务的记忆在同一个进程里。
+> 电脑端只写一条 URL 配置，不装包、不起进程、不做代理 —— 本机是纯粹的读者。
+> 曾有一版把 stdio MCP 放进客户端包、再代理回服务器，那是多余的一跳，而且迫使
+> 一台只需要 URL 的机器去 `pip install`。
 
 ---
 

@@ -78,13 +78,17 @@ else
   INSTALLED=0
   for i in "${!SPECS[@]}"; do
     printf '    尝试：%s\n' "${LABELS[$i]}"
-    if "$PY" -m pip install --user --upgrade "${SPECS[$i]}" >/tmp/ss-pip.log 2>&1; then
+    # --force-reinstall --no-cache-dir on purpose. The version number does not
+    # change between commits, and both pip's wheel cache and setuptools' build/
+    # directory are keyed on it — without these flags a reinstall silently keeps
+    # the previous code.
+    if "$PY" -m pip install --user --upgrade --force-reinstall --no-cache-dir "${SPECS[$i]}" >/tmp/ss-pip.log 2>&1; then
       good "从 ${LABELS[$i]} 安装成功"
       INSTALLED=1
       break
     fi
     # Debian/Ubuntu 的 externally-managed 环境需要显式放行
-    if "$PY" -m pip install --user --upgrade --break-system-packages "${SPECS[$i]}" >>/tmp/ss-pip.log 2>&1; then
+    if "$PY" -m pip install --user --upgrade --force-reinstall --no-cache-dir --break-system-packages "${SPECS[$i]}" >>/tmp/ss-pip.log 2>&1; then
       good "从 ${LABELS[$i]} 安装成功（用了 --break-system-packages）"
       INSTALLED=1
       break

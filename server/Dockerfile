@@ -10,6 +10,9 @@ FROM python:3.11-slim
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG INSTALL_MEMORY_BACKEND=true
 ARG INSTALL_SPEAKERS=false
+# Serves the MCP endpoint at /mcp. Without it the desktop cannot connect at all,
+# so it defaults on — the whole point is that the laptop installs nothing.
+ARG INSTALL_MCP=true
 # Debian archive host. Left at upstream by default; mainland builds should set
 # mirrors.aliyun.com or mirrors.tuna.tsinghua.edu.cn. Pulling the package index
 # straight from deb.debian.org takes minutes there, and because the apt layer
@@ -51,6 +54,9 @@ COPY shadowscribe ./shadowscribe
 RUN pip install --index-url "${PIP_INDEX_URL}" . \
  && if [ "${INSTALL_MEMORY_BACKEND}" = "true" ]; then \
       pip install --index-url "${PIP_INDEX_URL}" 'causal-memory>=0.9.3' ; \
+    fi \
+ && if [ "${INSTALL_MCP}" = "true" ]; then \
+      pip install --index-url "${PIP_INDEX_URL}" 'mcp>=1.0' ; \
     fi \
  && if [ "${INSTALL_SPEAKERS}" = "true" ]; then \
       pip install --index-url "${PIP_INDEX_URL}" 'sherpa-onnx>=1.10' 'numpy>=1.24' ; \

@@ -35,7 +35,7 @@ jobs:
         working-directory: server
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi uvicorn python-multipart sqlmodel pydantic pydantic-settings httpx numpy pytest
+          pip install fastapi uvicorn python-multipart sqlmodel pydantic pydantic-settings httpx numpy mcp pytest
 
       - name: Lint
         working-directory: server

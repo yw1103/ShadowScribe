@@ -81,6 +81,7 @@ def test_missing_argument_exits_nonzero():
     "command",
     [
         "login",
+        "setup",
         "status",
         "brief",
         "commitments",
@@ -89,7 +90,6 @@ def test_missing_argument_exits_nonzero():
         "upload",
         "recordings",
         "inject",
-        "mcp",
         "doctor",
     ],
 )
@@ -100,6 +100,20 @@ def test_every_documented_command_exists(command):
         action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
     )
     assert command in subparsers.choices
+
+
+def test_there_is_no_local_mcp_command():
+    """MCP is served by the ShadowScribe server, not by this package.
+
+    `ss mcp` used to spawn a stdio server that proxied back to the server over
+    HTTP — a redundant hop that forced a pip install onto the desktop. If it ever
+    comes back it should be a deliberate decision, not an accident.
+    """
+    parser = cli.build_parser()
+    subparsers = next(
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    )
+    assert "mcp" not in subparsers.choices
 
 
 def test_doctor_help_works_without_a_server():

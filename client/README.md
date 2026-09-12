@@ -52,21 +52,31 @@ ss inject --auto              # SNAPSHOT into editor rule files — for clients
                               # without MCP; it expires, so MCP is preferred
 ```
 
-## MCP registration
+## MCP
 
-Cursor / Claude Desktop / Claude Code:
+**The MCP server runs on the ShadowScribe server, not here.** This package is CLI
+only — `httpx` plus a console script. Point the editor straight at the server:
 
 ```json
 {
   "mcpServers": {
-    "shadowscribe": { "command": "ss", "args": ["mcp"] }
+    "shadowscribe": {
+      "url": "http://<server>:18080/mcp",
+      "headers": { "Authorization": "Bearer <SS_TOKEN>" }
+    }
   }
 }
 ```
 
+`ss setup` writes that for you (merging into any servers you already have) and
+also drops a small static instruction telling the agent *when* to call the tools.
+
 Exposed tools: `get_reality_context`, `list_open_commitments`, `search_reality`,
-`get_timeline`, `pending_work_summary`, plus the `shadowscribe://brief` and
-`shadowscribe://commitments` resources.
+`get_timeline`, `search_memory`, `causal_directory`.
+
+> An earlier version shipped a stdio MCP server inside this package which proxied
+> back to the server over HTTP. It was a redundant hop that forced a `pip install`
+> onto a machine that only needed a URL, and it is gone.
 
 ## Configuration
 

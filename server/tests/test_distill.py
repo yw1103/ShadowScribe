@@ -215,6 +215,62 @@ def test_parse_marks_edges_with_recording_date(distiller):
     assert all(e.occurred_at == "2026-01-08" for e in result.edges)
 
 
+# --------------------------------------------------- commitment person fields
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("承诺人", "我"),  # the model echoing the schema's own wording
+        ("本人", "我"),
+        ("owner", "我"),
+        ("me", "我"),
+        (None, "我"),
+        ("", "我"),
+        ("我", "我"),
+        ("老王", "老王"),
+        ("李经理", "李经理"),
+    ],
+)
+def test_owner_field_is_normalised(distiller, raw, expected):
+    result = distiller._parse(
+        {"commitments": [{"what": "交付方案", "owner": raw}]}, recorded_at="2026-01-08"
+    )
+    assert result.commitments[0].owner == expected
+
+
+def test_counterparty_rejects_self_contradiction(distiller):
+    """`owner == counterparty` means nobody promised anything to anybody.
+
+    Observed on a live run: the meeting's commitments came back as
+    owner=对方 / counterparty=对方. Dropping the field beats printing a
+    contradiction the reader has to reason about.
+    """
+    result = distiller._parse(
+        {"commitments": [{"what": "交付方案", "owner": "对方", "counterparty": "对方"}]},
+        recorded_at="2026-01-08",
+    )
+    assert result.commitments[0].owner == "对方"
+    assert result.commitments[0].counterparty is None
+
+
+def test_counterparty_resolves_schema_wording(distiller):
+    result = distiller._parse(
+        {"commitments": [{"what": "交付方案", "owner": "老王", "counterparty": "承诺人"}]},
+        recorded_at="2026-01-08",
+    )
+    assert result.commitments[0].owner == "老王"
+    assert result.commitments[0].counterparty == "我"
+
+
+def test_counterparty_keeps_a_real_name(distiller):
+    result = distiller._parse(
+        {"commitments": [{"what": "交付方案", "owner": "我", "counterparty": "李经理"}]},
+        recorded_at="2026-01-08",
+    )
+    assert result.commitments[0].counterparty == "李经理"
+
+
 # ------------------------------------------------------------------ degradation
 
 

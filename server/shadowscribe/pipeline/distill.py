@@ -38,18 +38,22 @@ SYSTEM_PROMPT = """\
 4. `actor` 判断是全表最重要的字段。写反会让「对方欠我的交付」变成「我欠对方的交付」，
    后果严重。按以下优先级判断：
    a) 该句说话人标注为「主人」→ owner；标注为「对方」→ other。
-   b) 若标注**全是「未知」**（本次录音没有声纹信息），用「谁欠谁一个交付」判别：
-      · **owner（主人）= 录音的持有者**，是会拍板、会承诺交付的那一方。
-      · 会话背景提示里出现的人名（例如「与老王、张总开会」里的老王、张总）→ other。
-      · 第一人称做出承诺、安排交付、拍板决定
-        （"那我周三之前先定位""我给你一个方案""那就这么定""我周五之前发群里"）→ owner。
-      · 第一人称反馈问题、提需求、汇报进展
-        （"我看了下用户反馈""我这边收到投诉""我怀疑是…不兼容"）→ other，
-        因为这是对方在**向主人提需求**，而不是在承诺交付。
-      · 仍然无法判断 → unknown。**宁可 unknown 也不要猜。**
-   c) `counterparty`（对谁承诺/对谁提出）必须**尽量写具体的人名**。
-      会话背景提示里给了名字（如「客户李经理」「老王」）就用那个名字，
-      只有在确实无法对应到具体的人时才用「对方」。
+   b) 标注**全是「未知」**时（本次录音没有声纹信息），用这条判据：
+      **在整段对话里拍板、并答应交付东西的那一方，就是主人（owner）。**
+      · 答应交付的说法："那我周三之前先定位""我给你一个方案""那就这么定"
+        "我周五之前发群里" → owner。
+      · 只是提需求、反馈问题、汇报进展的说法："我看了下用户反馈""我这边收到投诉"
+        "我怀疑是…不兼容""能不能提前" → other，这是对方**在向主人提要求**。
+      · 会话背景提示里的人名（如「与老王、张总开会」中的老王、张总）→ other。
+      · **常见错误：因为分不清说话人就一律写 other。** 如果整段对话只有一方在
+        拍板和承诺交付，那一方就是主人。不要把一个双方都有互动的会议全部判给 other。
+      · 真的无法判断 → unknown。宁可 unknown 也不要猜。
+5. `owner` 和 `counterparty` 要填**具体称呼**，不要照抄结构说明里的字面词：
+   - 主人一律写 `我`
+   - 能确定对方是谁就写名字（老王 / 李经理 / 张总）；背景提示里给了名字就必须用名字
+   - 只能确定「是对方」但不知道具体是谁时，才写 `对方`
+   - **禁止**输出「承诺人」「本人」「其他人」这类词
+   - 两者不能相同：同一个承诺不可能既由我做出、又是对我做出的
 5. 「承诺」必须是明确的待办或交付：有具体动作，且最好有时间或交付物。
    "以后再说"、"看看情况" 不算承诺。
 6. 没有可抽取内容时，数组一律返回空，不要为了凑数而编造。
@@ -94,8 +98,8 @@ USER_TEMPLATE = """\
   ],
   "commitments": [
     {{"what": "具体要交付什么",
-      "owner": "承诺人（我 / 对方的名字）",
-      "counterparty": "对谁承诺的",
+      "owner": "「我」或对方的具体名字；不知道名字才写「对方」；禁止写「承诺人」",
+      "counterparty": "对谁承诺的，同样填具体称呼；不能与 owner 相同",
       "due_text": "原文中的时间说法，如 周四 / 下周一 / 月底，没有则 null",
       "due_date": "换算成 YYYY-MM-DD，无法确定则 null",
       "evidence": "做出这个承诺的原文片段（原样摘录）",
@@ -223,6 +227,32 @@ def _iso_date(value: Any) -> str | None:
         return None
     m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", text)
     return m.group(0) if m else None
+
+
+#: Schema-description words a model may echo back instead of resolving a person.
+_SELF_WORDS = {"承诺人", "本人", "自己", "我方", "主人", "owner", "me", "i", "self"}
+_OTHER_WORDS = {"对方", "其他人", "他人", "另一方", "other", "counterparty"}
+
+
+def _normalize_person(value: Any, *, owner: bool) -> str | None:
+    """Resolve a person field to a concrete form.
+
+    Two failure modes seen from a real run, both worth correcting rather than
+    surfacing to the reader:
+
+    * the model copies the schema's own wording ("承诺人") into the field;
+    * it returns ``owner == counterparty`` for a single commitment, which is
+      self-contradictory — nobody promises something to themselves.
+    """
+    text = _as_str(value)
+    if not text:
+        return "我" if owner else None
+    lowered = text.lower()
+    if lowered in _SELF_WORDS or text in _SELF_WORDS:
+        return "我"
+    if lowered in _OTHER_WORDS or text in _OTHER_WORDS:
+        return "对方"
+    return text
 
 
 # -------------------------------------------------------------------- engine
@@ -386,11 +416,15 @@ class Distiller:
             what = _as_str(item.get("what"))
             if not what:
                 continue
+            owner = _normalize_person(item.get("owner"), owner=True) or "我"
+            counterparty = _normalize_person(item.get("counterparty"), owner=False)
+            if counterparty == owner:
+                counterparty = None
             result.commitments.append(
                 CommitmentOut(
                     what=what,
-                    owner=_as_str(item.get("owner")) or "我",
-                    counterparty=_as_str(item.get("counterparty")) or None,
+                    owner=owner,
+                    counterparty=counterparty,
                     due_text=_as_str(item.get("due_text")) or None,
                     due_date=_iso_date(item.get("due_date")),
                     confidence=_as_float(item.get("confidence"), 0.6),

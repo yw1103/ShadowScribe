@@ -375,18 +375,22 @@ def _top_entities(entities: list[models.Entity], limit: int = 12) -> list[str]:
 
 
 def _best_quotes(segments: list[models.Segment], limit: int = 6) -> list[str]:
-    """Prefer the owner's own words, longest first — they carry intent best."""
+    """Pick the most informative lines, then show them chronologically.
+
+    Selection ranks the owner's own words first (they carry intent) and longer
+    utterances above shorter ones. Display order is by timestamp though — a
+    context card whose quotes jump around in time reads as noise.
+    """
     ranked = sorted(
         (s for s in segments if len(s.text) >= 8 and (s.avg_logprob or 0) > -1.0),
         key=lambda s: (s.speaker == "owner", len(s.text)),
         reverse=True,
-    )
+    )[:limit]
     out: list[str] = []
-    for seg in ranked[:limit]:
+    for seg in sorted(ranked, key=lambda s: (s.recording_id, s.start_ms)):
         who = {"owner": "我", "guest": "对方"}.get(seg.speaker or "", "未知")
-        out.append(
-            f"[{seg.start_ms // 60000:02d}:{(seg.start_ms // 1000) % 60:02d}] {who}: “{seg.text}”"
-        )
+        stamp = f"{seg.start_ms // 60000:02d}:{(seg.start_ms // 1000) % 60:02d}"
+        out.append(f"[{stamp}] {who}: “{seg.text}”")
     return out
 
 

@@ -14,10 +14,28 @@ package (``ss``) — this one only exists to operate the server box.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+def _configure_stdio() -> None:
+    """Survive a non-UTF-8 console.
+
+    The context card carries CJK plus emoji, and a Windows GBK console raises
+    ``UnicodeEncodeError`` on the first one. Harmless on the Linux server, but a
+    contributor running ``shadowscribe brief`` locally should not get a traceback.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            with contextlib.suppress(AttributeError, OSError, ValueError):
+                stream.reconfigure(errors="replace")
 
 
 def _bootstrap_logging(level: str) -> None:
@@ -270,6 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_stdio()
     args = build_parser().parse_args(argv)
     _bootstrap_logging("WARNING")
     return args.func(args)

@@ -14,6 +14,7 @@ window already contains today's reality.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import shutil
 import subprocess
@@ -25,6 +26,27 @@ from .api import ShadowScribeClient, ShadowScribeError
 from .config import ClientConfig
 
 # --------------------------------------------------------------------- helpers
+
+
+def _configure_stdio() -> None:
+    """Make output survive a non-UTF-8 console.
+
+    Windows consoles default to a legacy code page (GBK/cp936 on Chinese installs),
+    and the context card contains CJK plus emoji. Without this, ``ss brief`` dies
+    with ``UnicodeEncodeError`` on the first ⏳ — i.e. it fails on exactly the
+    platform this tool is most likely to run on.
+
+    Prefer UTF-8 (correct on Windows Terminal / PowerShell 7+). If that is not
+    possible, at least degrade to replacement characters instead of a traceback.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            with contextlib.suppress(AttributeError, OSError, ValueError):
+                stream.reconfigure(errors="replace")
 
 
 def _client(args) -> ShadowScribeClient:
@@ -355,6 +377,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_stdio()
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)

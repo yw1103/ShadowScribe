@@ -31,7 +31,11 @@ dist/
 *.egg
 .eggs/
 .venv/
+# Any suffixed variant too — a `.venv-ci` used for CI reproduction got committed
+# once because only the exact name was listed.
+.venv-*/
 venv/
+venv-*/
 env/
 .python-version
 .mypy_cache/

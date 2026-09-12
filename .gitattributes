@@ -1,0 +1,26 @@
+# Normalise line endings so Windows/macOS/Linux contributors produce identical diffs.
+* text=auto eol=lf
+
+# Explicit binary handling — never let git "fix" these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.onnx binary
+*.pt binary
+*.bin binary
+*.wav binary
+*.m4a binary
+*.mp3 binary
+*.opus binary
+
+# Windows-only scripts genuinely want CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Keep diffs sane in generated / vendored trees.
+package-lock.json linguist-generated=true
+pnpm-lock.yaml linguist-generated=true

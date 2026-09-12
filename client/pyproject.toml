@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shadowscribe-client"
+version = "0.1.0"
+description = "影书 ShadowScribe desktop client — `ss` CLI and MCP server for zero-context-overhead AI sessions"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ShadowScribe contributors" }]
+keywords = ["mcp", "context", "memory", "cursor", "claude", "cli"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Utilities",
+]
+
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+
+[project.scripts]
+ss = "shadowscribe_client.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yw1103/ShadowScribe"
+Repository = "https://github.com/yw1103/ShadowScribe"
+Issues = "https://github.com/yw1103/ShadowScribe/issues"
+
+[tool.setuptools.packages.find]
+include = ["shadowscribe_client*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

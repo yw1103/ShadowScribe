@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shadowscribe"
+version = "0.1.0"
+description = "影书 ShadowScribe server — passive ambient ingestion and causal distillation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ShadowScribe contributors" }]
+keywords = ["ambient", "memory", "asr", "whisper", "causal", "mcp", "exocortex"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "python-multipart>=0.0.9",
+  "sqlmodel>=0.0.16",
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "httpx>=0.27",
+  "faster-whisper>=1.0.3",
+]
+
+[project.optional-dependencies]
+# The recommended long-term store. Pure-Python wheel, no Rust toolchain needed.
+memory = ["causal-memory>=0.9.3"]
+# Voiceprint-based owner/guest attribution (原则二 groundwork).
+speakers = ["sherpa-onnx>=1.10", "numpy>=1.24"]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.4",
+  "mypy>=1.9",
+]
+
+[project.scripts]
+shadowscribe = "shadowscribe.cli:main"
+shadowscribe-worker = "shadowscribe.worker:main"
+
+[project.urls]
+Homepage = "https://github.com/yw1103/ShadowScribe"
+Repository = "https://github.com/yw1103/ShadowScribe"
+Issues = "https://github.com/yw1103/ShadowScribe/issues"
+Documentation = "https://github.com/yw1103/ShadowScribe/tree/main/docs"
+
+[tool.setuptools.packages.find]
+include = ["shadowscribe*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["E501", "B008"]  # B008: FastAPI Depends() in defaults is idiomatic
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

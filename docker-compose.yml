@@ -1,0 +1,65 @@
+# ShadowScribe — single-host deployment.
+#
+#   cp .env.example .env && $EDITOR .env      # set SS_TOKEN and SS_LLM_API_KEY
+#   docker compose up -d --build
+#   docker compose logs -f worker
+#
+# Two containers, one volume. The API stays responsive while the worker chews
+# through hours of audio, and both share the SQLite store through WAL.
+
+name: shadowscribe
+
+services:
+  api:
+    build:
+      context: ./server
+      args:
+        # Mainland hosts: point at a domestic mirror to make the build bearable.
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        INSTALL_MEMORY_BACKEND: ${INSTALL_MEMORY_BACKEND:-true}
+        INSTALL_SPEAKERS: ${INSTALL_SPEAKERS:-false}
+    image: shadowscribe:local
+    container_name: shadowscribe-api
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      SS_ROLE: api
+    ports:
+      - "${SS_BIND:-0.0.0.0}:${SS_PORT:-18080}:18080"
+    volumes:
+      - ss-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  worker:
+    image: shadowscribe:local
+    container_name: shadowscribe-worker
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["shadowscribe-worker"]
+    env_file: [.env]
+    environment:
+      SS_ROLE: worker
+    volumes:
+      - ss-data:/data
+    # Whisper on CPU is throughput-hungry; give it every core it can get.
+    deploy:
+      resources:
+        limits:
+          cpus: "${SS_WORKER_CPUS:-0}"
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+volumes:
+  ss-data:
+    name: shadowscribe-data

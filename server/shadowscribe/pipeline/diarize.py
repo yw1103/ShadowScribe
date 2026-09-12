@@ -119,8 +119,13 @@ class SpeakerEmbedder:
             stream.accept_waveform(sample_rate, samples.astype(np.float32))
             stream.input_finished()
             if not ex.is_ready(stream):
+                log.warning(
+                    "speaker embedding: %d samples at %d Hz were not enough for a vector",
+                    len(samples),
+                    sample_rate,
+                )
                 return None
-            vec = np.asarray(ex.compute_embedding(stream), dtype=np.float32)
+            vec = np.asarray(_compute_embedding(ex, stream), dtype=np.float32)
         except Exception as exc:
             log.warning("speaker embedding failed: %s", exc)
             return None
@@ -149,6 +154,23 @@ class SpeakerEmbedder:
 
         samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
         return self.embed_pcm(samples, rate)
+
+
+def _compute_embedding(extractor, stream):
+    """Return the speaker vector for ``stream``, across sherpa-onnx versions.
+
+    The binding renamed ``compute_embedding(stream)`` to ``compute(stream)`` in
+    1.13. Resolving at call time (rather than importing a symbol) keeps both
+    releases working — the same lesson as the mcp SDK rename on the client side.
+    """
+    for name in ("compute_embedding", "compute"):
+        fn = getattr(extractor, name, None)
+        if callable(fn):
+            return fn(stream)
+    raise AttributeError(
+        "sherpa-onnx SpeakerEmbeddingExtractor exposes neither compute_embedding() "
+        "nor compute(); unsupported version"
+    )
 
 
 def cosine(a, b) -> float:

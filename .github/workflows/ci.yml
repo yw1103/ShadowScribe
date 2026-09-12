@@ -28,13 +28,14 @@ jobs:
           cache: pip
 
       # Deliberately NOT installing faster-whisper / causal-memory here: the unit
-      # suite must pass on a bare interpreter, otherwise a fresh clone is broken
-      # for anyone without a GPU-class toolchain.
+      # suite must pass without them, otherwise a fresh clone is broken for anyone
+      # lacking that toolchain. numpy *is* included — it is a real transitive
+      # dependency of faster-whisper, and the speaker-attribution tests need it.
       - name: Install (lean)
         working-directory: server
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi uvicorn python-multipart sqlmodel pydantic pydantic-settings httpx pytest
+          pip install fastapi uvicorn python-multipart sqlmodel pydantic pydantic-settings httpx numpy pytest
 
       - name: Lint
         working-directory: server

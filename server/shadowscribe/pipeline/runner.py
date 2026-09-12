@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from sqlmodel import Session, delete, select
+from sqlmodel import Session, delete, desc, select
 
 from .. import models
 from ..config import settings as default_settings
@@ -40,30 +40,50 @@ class Pipeline:
         self.embedder = SpeakerEmbedder(self.s)
         self.labeler = SpeakerLabeler(self.s, self.embedder)
         self.distiller = Distiller(self.s)
-        self._owner_loaded = False
+        self._owner_key: tuple[str, object] | None = None
+        """Identity of the voiceprint currently loaded, so a re-enrolment is picked
+        up without restarting the worker."""
 
     # ------------------------------------------------------------- owner voice
     def _load_owner(self, session: Session) -> None:
-        if self._owner_loaded:
-            return
-        self._owner_loaded = True
+        """Adopt the enrolled voiceprint, re-reading it whenever it changes.
+
+        Deliberately *not* a load-once-per-process cache. Enrolling a voiceprint
+        over the API has to take effect on the next job, not after a worker
+        restart — caught live when enrolling the owner's own voice and
+        reprocessing produced byte-identical similarity scores, meaning the worker
+        was still comparing against the previous voiceprint.
+        """
         if self.s.diarization != "embedding":
             return
+
         row = session.exec(
-            select(models.Speaker).where(models.Speaker.is_owner == True).limit(1)  # noqa: E712
+            select(models.Speaker)
+            .where(models.Speaker.is_owner == True)  # noqa: E712
+            .order_by(desc(models.Speaker.created_at))
+            .limit(1)
         ).first()
+
         if row is None or not row.embedding:
-            log.info("no enrolled owner voiceprint; speaker labels stay 'unknown'")
+            if self._owner_key is not None:
+                log.info("owner voiceprint removed; speaker labels will stay 'unknown'")
+            self._owner_key = None
+            self.labeler.load_owner(None)
             return
+
+        key = (row.id, row.created_at)
+        if key == self._owner_key:
+            return
+
         import numpy as np
 
-        vec = np.frombuffer(row.embedding, dtype=np.float32)
-        self.labeler.load_owner(vec, row.label)
+        self.labeler.load_owner(np.frombuffer(row.embedding, dtype=np.float32), row.label)
+        self._owner_key = key
         log.info("owner voiceprint loaded: %s (dim=%d)", row.label, row.dim)
 
     def reload_owner(self) -> None:
-        """Call after enrollment so a running worker picks up the new voiceprint."""
-        self._owner_loaded = False
+        """Force the next job to re-read the voiceprint from the database."""
+        self._owner_key = None
 
     # ------------------------------------------------------------------- main
     def process(self, recording_id: str, *, index_memory: bool = True) -> dict:

@@ -28,8 +28,15 @@ RUN apt-get update \
 WORKDIR /app
 
 # Dependencies go in their own layer, installed against a stub package. Editing
-# shadowscribe/ then only invalidates the final `--no-deps` install (seconds)
-# instead of re-resolving ctranslate2 and friends over a slow link (a minute).
+# shadowscribe/ then only invalidates the final install (seconds) instead of
+# re-resolving ctranslate2 and friends over a slow link (a minute).
+#
+# Two things this MUST get right, both learned the hard way:
+#   * the final install needs --force-reinstall, because pip sees the same version
+#     number already installed and would otherwise silently keep the empty stub,
+#     producing an image that builds fine and crashes on import;
+#   * the build asserts the real package imports, so that failure is a build
+#     error rather than a runtime surprise.
 COPY pyproject.toml README.md ./
 RUN mkdir -p shadowscribe && touch shadowscribe/__init__.py \
  && pip install --index-url "${PIP_INDEX_URL}" . \
@@ -42,7 +49,8 @@ RUN mkdir -p shadowscribe && touch shadowscribe/__init__.py \
  && rm -rf shadowscribe
 
 COPY shadowscribe ./shadowscribe
-RUN pip install --index-url "${PIP_INDEX_URL}" --no-deps .
+RUN pip install --index-url "${PIP_INDEX_URL}" --no-deps --force-reinstall . \
+ && python -c "import shadowscribe.api, shadowscribe.service, shadowscribe.worker as w; print('shadowscribe package installed and importable')"
 
 RUN mkdir -p /data/audio /data/raw /data/models /data/memory
 

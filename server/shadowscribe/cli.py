@@ -47,11 +47,12 @@ def _cmd_worker(args) -> int:
 
 def _cmd_ingest(args) -> int:
     """Feed a local audio file through the pipeline — the fastest way to verify."""
+    from sqlmodel import Session
+
     from . import models
     from .config import settings
     from .db import get_engine, init_db
     from .pipeline.runner import Pipeline
-    from sqlmodel import Session
 
     path = Path(args.path).expanduser().resolve()
     if not path.exists():
@@ -64,7 +65,11 @@ def _cmd_ingest(args) -> int:
     import hashlib
     import shutil
 
-    sha = hashlib.sha256(path.read_bytes()).hexdigest() if path.stat().st_size < 512 * 1024 * 1024 else ""
+    sha = (
+        hashlib.sha256(path.read_bytes()).hexdigest()
+        if path.stat().st_size < 512 * 1024 * 1024
+        else ""
+    )
     rec_id = models.new_id()
     target = settings.raw_dir / f"{rec_id}{path.suffix.lower() or '.bin'}"
     shutil.copy2(path, target)
@@ -182,7 +187,9 @@ def _cmd_doctor(args) -> int:
         (
             "LLM distillation",
             llm_ok,
-            f"{settings.llm_model} @ {settings.llm_base_url}" if llm_ok else "SS_LLM_API_KEY not set",
+            f"{settings.llm_model} @ {settings.llm_base_url}"
+            if llm_ok
+            else "SS_LLM_API_KEY not set",
         )
     )
 

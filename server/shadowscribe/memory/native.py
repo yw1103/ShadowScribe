@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from sqlmodel import Field, Session, SQLModel, select
 
 from ..db import get_engine
-from .base import CausalEdge, EpisodeInput, WriteResult
+from .base import EpisodeInput, WriteResult
 
 
 def _utcnow() -> datetime:
@@ -130,7 +130,10 @@ class NativeMemoryBackend:
             facts = s.exec(select(MemFact).order_by(MemFact.id.desc()).limit(2000)).all()
 
         scored_edges = sorted(
-            ((self._score(toks, f"{e.cause} {e.effect} {e.task_tag} {e.context or ''}"), e) for e in edges),
+            (
+                (self._score(toks, f"{e.cause} {e.effect} {e.task_tag} {e.context or ''}"), e)
+                for e in edges
+            ),
             key=lambda pair: pair[0],
             reverse=True,
         )

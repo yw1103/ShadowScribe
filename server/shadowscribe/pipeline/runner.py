@@ -24,7 +24,7 @@ from ..memory import get_backend
 from .asr import Transcriber
 from .audio import normalize
 from .diarize import SpeakerEmbedder, SpeakerLabeler
-from .distill import Distiller, DistillationResult
+from .distill import DistillationResult, Distiller
 
 log = logging.getLogger(__name__)
 
@@ -177,7 +177,9 @@ class Pipeline:
                 episode.memory_ids = json.dumps(outcome.ids)
                 session.add(episode)
                 if outcome.errors:
-                    log.warning("[%s] memory backend reported %d errors", rec.id, len(outcome.errors))
+                    log.warning(
+                        "[%s] memory backend reported %d errors", rec.id, len(outcome.errors)
+                    )
         session.commit()
 
         self._maybe_drop_audio(rec)
@@ -206,6 +208,7 @@ class Pipeline:
         try:
             tz = ZoneInfo(self.s.timezone)
         except Exception:
+            log.warning("timezone %r unavailable; using UTC dates", self.s.timezone)
             tz = timezone.utc
         dt = rec.recorded_at
         if dt.tzinfo is None:

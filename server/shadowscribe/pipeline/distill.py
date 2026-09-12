@@ -264,8 +264,12 @@ class Distiller:
                 return json.loads(_strip_code_fence(content))
             except Exception as exc:
                 last_error = exc
-                log.warning("distill attempt %d/%d failed: %s", attempt, self.s.llm_max_retries, exc)
-        raise DistillError(f"LLM extraction failed after {self.s.llm_max_retries} attempts: {last_error}")
+                log.warning(
+                    "distill attempt %d/%d failed: %s", attempt, self.s.llm_max_retries, exc
+                )
+        raise DistillError(
+            f"LLM extraction failed after {self.s.llm_max_retries} attempts: {last_error}"
+        )
 
     # --------------------------------------------------------------- extract
     def distill(

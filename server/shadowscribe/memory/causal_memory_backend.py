@@ -137,9 +137,7 @@ class CausalMemoryBackend:
     # ------------------------------------------------------------------- read
     def search(self, query: str, limit: int = 10, detail_level: str = "l1") -> str:
         with self._lock:
-            return self._mem.search_memory(
-                query, limit=limit, detail_level=detail_level
-            ) or ""
+            return self._mem.search_memory(query, limit=limit, detail_level=detail_level) or ""
 
     def directory(self, limit: int = 20) -> str:
         with self._lock:

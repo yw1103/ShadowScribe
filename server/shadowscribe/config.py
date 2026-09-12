@@ -7,11 +7,12 @@ for the annotated list.
 
 from __future__ import annotations
 
+import logging
 import secrets
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: Filled on first access when ``SS_TOKEN`` is unset, so a laptop run still has
@@ -108,11 +109,38 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------- misc
     timezone: str = "Asia/Shanghai"
     """Operator timezone. Decides what "今天/周四/下周一" resolves to during
-    distillation, and which calendar day an episode lands on."""
+    distillation, and which calendar day an episode lands on. Needs the ``tzdata``
+    package on Windows and slim container images; without it we fall back to UTC."""
 
     log_level: str = "INFO"
     worker_poll_interval_s: float = 2.0
     worker_max_attempts: int = 3
+
+    @field_validator("timezone")
+    @classmethod
+    def _check_timezone(cls, v: str) -> str:
+        """Reject typos, but tolerate a host with no tz database at all.
+
+        These are different failures: ``Asia/Shangai`` is a mistake worth failing
+        fast on, whereas a Windows box or slim image without ``tzdata`` should
+        degrade to UTC rather than refuse to boot.
+        """
+        from zoneinfo import ZoneInfo
+
+        try:
+            ZoneInfo(v)
+        except Exception as exc:
+            try:
+                ZoneInfo("UTC")
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "no IANA time zone database on this host; SS_TIMEZONE=%r will be "
+                    "treated as UTC. Install the `tzdata` package to fix dates.",
+                    v,
+                )
+                return v
+            raise ValueError(f"SS_TIMEZONE={v!r} is not a known IANA zone") from exc
+        return v
 
     # ------------------------------------------------------------ validators
     @field_validator("diarization")

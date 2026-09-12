@@ -42,7 +42,11 @@ def _copy_to_clipboard(text: str) -> bool:
     elif sys.platform == "darwin":
         candidates = [["pbcopy"]]
     else:
-        candidates = [["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]]
+        candidates = [
+            ["wl-copy"],
+            ["xclip", "-selection", "clipboard"],
+            ["xsel", "--clipboard", "--input"],
+        ]
 
     for cmd in candidates:
         if shutil.which(cmd[0]):
@@ -98,9 +102,11 @@ def cmd_status(args) -> int:
     counts = info.get("recordings", {})
     print(f"endpoint      : {client.cfg.endpoint}")
     print(f"memory backend: {info.get('backend')}")
-    print(f"recordings    : {counts.get('recordings', 0)} total · "
-          f"{counts.get('done', 0)} done · {counts.get('queued', 0)} queued · "
-          f"{counts.get('failed', 0)} failed")
+    print(
+        f"recordings    : {counts.get('recordings', 0)} total · "
+        f"{counts.get('done', 0)} done · {counts.get('queued', 0)} queued · "
+        f"{counts.get('failed', 0)} failed"
+    )
     print(f"segments      : {counts.get('segments', 0)}")
     print(f"episodes      : {counts.get('episodes', 0)}")
     print(f"open promises : {counts.get('commitments_open', 0)}")
@@ -127,7 +133,9 @@ def cmd_brief(args) -> int:
         print(card)
     if args.copy:
         print(
-            "copied to clipboard" if _copy_to_clipboard(card) else "could not reach a clipboard tool",
+            "copied to clipboard"
+            if _copy_to_clipboard(card)
+            else "could not reach a clipboard tool",
             file=sys.stderr,
         )
     return 0
@@ -253,9 +261,7 @@ def cmd_inject(args) -> int:
         block = inject_mod.render_block(card, target=target)
         outcome = inject_mod.inject(path, block, frontmatter=target.frontmatter)
         print(f"  {outcome:<9} {target.label:<34} {path}")
-    print(
-        f"\n上下文已注入（{len(card)} 字符）。下次打开编辑器新会话时，AI 会自动带着它。"
-    )
+    print(f"\n上下文已注入（{len(card)} 字符）。下次打开编辑器新会话时，AI 会自动带着它。")
     return 0
 
 
@@ -277,7 +283,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--endpoint", help="server base URL (overrides config)")
     parser.add_argument("--token", help="bearer token (overrides config)")
-    parser.add_argument("--json", action="store_true", help="machine-readable output where supported")
+    parser.add_argument(
+        "--json", action="store_true", help="machine-readable output where supported"
+    )
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -326,8 +334,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_recordings)
 
     p = sub.add_parser("inject", help="write the context card into editor rule files")
-    p.add_argument("--target", dest="targets", action="append",
-                   choices=sorted(inject_mod.TARGETS), help="repeatable")
+    p.add_argument(
+        "--target",
+        dest="targets",
+        action="append",
+        choices=sorted(inject_mod.TARGETS),
+        help="repeatable",
+    )
     p.add_argument("--auto", action="store_true", help="detect editors present in this repo")
     p.add_argument("--hours", type=int, default=None)
     p.add_argument("--max-tokens", type=int, default=None)

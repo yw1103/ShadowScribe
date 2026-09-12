@@ -10,10 +10,11 @@ Desktop, a terminal, or an MCP tool result without any further transformation.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, date, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, desc, select
@@ -39,17 +40,30 @@ class BriefOptions:
     include_entities: bool = True
 
 
-def _tz(settings) -> ZoneInfo:
+def _tz(settings):
+    """Resolve the operator timezone, degrading to UTC when tzdata is absent.
+
+    ``zoneinfo`` needs the system tz database (``tzdata`` package on Windows and
+    on slim container images). Missing it must not take down ``/v1/context/brief``.
+    """
     try:
         return ZoneInfo(settings.timezone)
-    except Exception:
-        return ZoneInfo("UTC")
+    except Exception as exc:
+        log.warning(
+            "timezone %r unavailable (%s); falling back to UTC. "
+            "Install the `tzdata` package for correct local-day attribution.",
+            settings.timezone,
+            exc,
+        )
+        return timezone.utc
 
 
 def _aware(dt: datetime | None, tz) -> datetime | None:
     if dt is None:
         return None
-    return dt.replace(tzinfo=timezone.utc).astimezone(tz) if dt.tzinfo is None else dt.astimezone(tz)
+    return (
+        dt.replace(tzinfo=timezone.utc).astimezone(tz) if dt.tzinfo is None else dt.astimezone(tz)
+    )
 
 
 def _approx_tokens(text: str) -> int:
@@ -102,9 +116,7 @@ def build_brief(options: BriefOptions | None = None, settings=None) -> str:
             else []
         )
         entities = (
-            session.exec(
-                select(models.Entity).where(models.Entity.recording_id.in_(rec_ids))
-            ).all()
+            session.exec(select(models.Entity).where(models.Entity.recording_id.in_(rec_ids))).all()
             if rec_ids
             else []
         )
@@ -130,66 +142,145 @@ def build_brief(options: BriefOptions | None = None, settings=None) -> str:
         )
 
     open_commitments = [c for c in commitments if c.status == "open"]
-    speakers = {seg.speaker for seg in segments if seg.speaker and seg.speaker != "unknown"}
     entity_names = _top_entities(entities)
 
-    sections: list[str] = []
-    sections.append(
+    overview = (
         f"# 影书 · 现实上下文（{span}）\n\n"
         f"**概览**：{len(recordings)} 段录音 · {len(episodes)} 个话题片段 · "
         f"{len(open_commitments)} 项待办 · {sum(e.cause_count for e in episodes)} 条因果。"
     )
 
-    # --- 1. open commitments (highest value, never trimmed) ---------------
-    if open_commitments:
-        lines = ["## ⏳ 进行中的承诺"]
-        for c in open_commitments:
-            lines.append(_render_commitment(c, tz))
-        sections.append("\n".join(lines))
-
-    # --- 2. decisions -----------------------------------------------------
-    decisions = _collect_decisions(episodes)
-    if decisions:
-        lines = ["## 🎯 关键决策"]
-        for d in decisions:
-            who = {"owner": "我拍的", "other": "对方拍的", "unknown": ""}.get(d.get("actor", ""), "")
-            suffix = f"（{who}）" if who else ""
-            rationale = f" — 依据：{d['rationale']}" if d.get("rationale") else ""
-            lines.append(f"- {d['what']}{suffix}{rationale}")
-        sections.append("\n".join(lines))
-
-    # --- 3. causal chains -------------------------------------------------
-    edges = _collect_edges(episodes)
-    if edges:
-        lines = ["## 🔗 因果脉络"]
-        for e in edges:
-            tag = f"`{e['task_tag']}`" if e.get("task_tag") else ""
-            glyph = {
-                "caused": "→",
-                "enabled": "→(促成)",
-                "prevented": "→(避免)",
-                "no_effect": "→(无影响)",
-            }.get(e.get("relation", "caused"), "→")
-            lines.append(f"- {e['cause']} {glyph} {e['effect']} {tag}".rstrip())
-        sections.append("\n".join(lines))
-
-    # --- 4. entities ------------------------------------------------------
+    # Sections are ordered by value to the reader, and the assembler below relies
+    # on that order: commitments are *mandatory* (only their items get trimmed),
+    # everything after them is optional and dropped whole when the budget runs out.
+    mandatory = ("⏳ 进行中的承诺", [_render_commitment(c, tz) for c in open_commitments])
+    optional: list[tuple[str, list[str]]] = [
+        ("🎯 关键决策", _render_decisions(episodes)),
+        ("🔗 因果脉络", _render_edges(episodes)),
+        ("🗂 话题片段", _render_episode_frame(episodes, tz)),
+    ]
     if opts.include_entities and entity_names:
-        sections.append("## 👥 涉及的人与项目\n\n" + " · ".join(entity_names))
-
-    # --- 5. verbatim anchors ---------------------------------------------
+        optional.append(("👥 涉及的人与项目", [" · ".join(entity_names)]))
     if opts.include_quotes:
-        quotes = _best_quotes(segments, limit=6)
-        if quotes:
-            sections.append("## 💬 原话锚点\n\n" + "\n".join(f"- {q}" for q in quotes))
+        optional.append(("💬 原话锚点", _best_quotes(segments, limit=6)))
 
-    body = "\n\n".join(sections)
-    note = (
-        "\n\n---\n"
-        "_由影书 ShadowScribe 从现实对话静默沉淀。下列内容为客观转录与结构化抽取，"
-        "可直接作为工作背景使用。_\n"
-    )
-    return _trim_to_budget(body, note, opts.max_tokens)
+    return _assemble(overview, mandatory, optional, opts.max_tokens)
+
+
+FOOTER = (
+    "\n\n---\n"
+    "_由影书 ShadowScribe 从现实对话静默沉淀。下列内容为客观转录与结构化抽取，"
+    "可直接作为工作背景使用。_\n"
+)
+
+
+def _block(title: str, lines: list[str]) -> str:
+    return "\n".join([f"## {title}", *lines])
+
+
+def _assemble(
+    overview: str,
+    mandatory: tuple[str, list[str]],
+    optional: list[tuple[str, list[str]]],
+    max_tokens: int,
+) -> str:
+    """Fit sections into the token budget without ever cutting mid-sentence.
+
+    Two rules make the result predictable:
+
+    * the mandatory section is always present — if it alone busts the budget we
+      shorten its *list* and say how many entries were withheld, because "what do
+      I owe people" is the one thing the card must never lose;
+    * optional sections are dropped whole, and a section that does not fit does
+      not stop a later, smaller one from fitting.
+    """
+    parts = [overview]
+    used = _approx_tokens(overview)
+    trimmed = False
+
+    title, lines = mandatory
+    if lines:
+        kept: list[str] = []
+        for line in lines:
+            if kept and used + _approx_tokens(_block(title, [*kept, line])) > max_tokens:
+                trimmed = True
+                break
+            kept.append(line)
+        if len(kept) < len(lines):
+            kept.append(f"- _…另有 {len(lines) - len(kept)} 项未列出_")
+        block = _block(title, kept)
+        parts.append(block)
+        used += _approx_tokens(block)
+
+    for title, lines in optional:
+        if not lines:
+            continue
+        block = _block(title, lines)
+        if used + _approx_tokens(block) > max_tokens:
+            trimmed = True
+            continue
+        parts.append(block)
+        used += _approx_tokens(block)
+
+    body = "\n\n".join(parts)
+    if trimmed:
+        body += "\n\n_（已按 token 预算截断，可提高 max_tokens 获取完整上下文）_"
+    return body + FOOTER
+
+
+def _render_decisions(episodes: list[models.Episode]) -> list[str]:
+    out: list[str] = []
+    for d in _collect_decisions(episodes):
+        who = {"owner": "我拍的", "other": "对方拍的", "unknown": ""}.get(d.get("actor", ""), "")
+        suffix = f"（{who}）" if who else ""
+        rationale = f" — 依据：{d['rationale']}" if d.get("rationale") else ""
+        out.append(f"- {d['what']}{suffix}{rationale}")
+    return out
+
+
+_EDGE_GLYPH = {
+    "caused": "→",
+    "enabled": "→(促成)",
+    "prevented": "→(避免)",
+    "no_effect": "→(无影响)",
+}
+
+
+def _render_edges(episodes: list[models.Episode]) -> list[str]:
+    out: list[str] = []
+    for e in _collect_edges(episodes):
+        tag = f"`{e['task_tag']}`" if e.get("task_tag") else ""
+        glyph = _EDGE_GLYPH.get(e.get("relation", "caused"), "→")
+        out.append(f"- {e['cause']} {glyph} {e['effect']} {tag}".rstrip())
+    return out
+
+
+def _render_episode_frame(episodes: list[models.Episode], tz, limit: int = 10) -> list[str]:
+    """Chronological frame of what was talked about.
+
+    This is the fallback that keeps the card useful when distillation ran
+    degraded (no LLM key, or every window failed): there are no edges to show,
+    but the titles and summaries still tell the agent where the day went.
+    """
+    if not episodes:
+        return []
+    lines: list[str] = []
+    for ep in episodes[:limit]:
+        stamp = _aware(ep.started_at, tz)
+        clock = f"{stamp:%H:%M}" if stamp else "--:--"
+        title = (ep.title or "(未命名)").strip()
+        degraded = False
+        with contextlib.suppress(json.JSONDecodeError):
+            degraded = bool(json.loads(ep.raw_json or "{}").get("degraded"))
+        mark = " _(未蒸馏)_" if degraded else ""
+        summary = " ".join((ep.summary or "").split())
+        if summary and summary != title:
+            lines.append(f"- **{clock} {title}**{mark} — {summary[:110]}")
+        else:
+            lines.append(f"- **{clock} {title}**{mark}")
+    if len(episodes) > limit:
+        lines.append(f"- _…另有 {len(episodes) - limit} 个片段_")
+    return lines
 
 
 def _render_commitment(c: models.Commitment, tz) -> str:
@@ -256,25 +347,10 @@ def _best_quotes(segments: list[models.Segment], limit: int = 6) -> list[str]:
     out: list[str] = []
     for seg in ranked[:limit]:
         who = {"owner": "我", "guest": "对方"}.get(seg.speaker or "", "未知")
-        out.append(f"[{seg.start_ms // 60000:02d}:{(seg.start_ms // 1000) % 60:02d}] {who}: “{seg.text}”")
+        out.append(
+            f"[{seg.start_ms // 60000:02d}:{(seg.start_ms // 1000) % 60:02d}] {who}: “{seg.text}”"
+        )
     return out
-
-
-def _trim_to_budget(body: str, note: str, max_tokens: int) -> str:
-    """Drop whole trailing sections until the card fits the token budget."""
-    if _approx_tokens(body) <= max_tokens:
-        return body + note
-    blocks = body.split("\n\n## ")
-    kept: list[str] = []
-    for i, block in enumerate(blocks):
-        candidate = block if i == 0 else "## " + block
-        if _approx_tokens("\n\n".join(kept + [candidate])) > max_tokens and kept:
-            break
-        kept.append(candidate)
-    trimmed = "\n\n".join(kept)
-    if len(kept) < len(blocks):
-        trimmed += "\n\n_（已按 token 预算截断，可提高 max_tokens 获取完整上下文）_"
-    return trimmed + note
 
 
 # ------------------------------------------------------------------ queries
@@ -306,7 +382,9 @@ def list_commitments(
         return list(session.exec(stmt).all())
 
 
-def set_commitment_status(commitment_id: str, status: str, settings=None) -> models.Commitment | None:
+def set_commitment_status(
+    commitment_id: str, status: str, settings=None
+) -> models.Commitment | None:
     s = settings or default_settings
     with Session(get_engine(s.db_path)) as session:
         row = session.get(models.Commitment, commitment_id)

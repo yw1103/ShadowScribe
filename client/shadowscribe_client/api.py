@@ -66,9 +66,7 @@ class ShadowScribeClient:
     @staticmethod
     def _raise_for_status(resp: httpx.Response) -> None:
         if resp.status_code == 401:
-            raise ShadowScribeError(
-                "401 Unauthorized — check SS_TOKEN (`ss login --token ...`)"
-            )
+            raise ShadowScribeError("401 Unauthorized — check SS_TOKEN (`ss login --token ...`)")
         if resp.status_code >= 400:
             detail = resp.text[:300]
             raise ShadowScribeError(f"HTTP {resp.status_code}: {detail}")
@@ -84,8 +82,14 @@ class ShadowScribeClient:
         except httpx.HTTPError:
             return False
 
-    def brief(self, *, hours: int | None = None, max_tokens: int | None = None,
-              quotes: bool = True, entities: bool = True) -> str:
+    def brief(
+        self,
+        *,
+        hours: int | None = None,
+        max_tokens: int | None = None,
+        quotes: bool = True,
+        entities: bool = True,
+    ) -> str:
         resp = self._get(
             "/v1/context/brief",
             hours=hours or self.cfg.default_hours,
@@ -150,4 +154,6 @@ class ShadowScribeClient:
 
     # -------------------------------------------------------------- debugging
     def as_dict(self) -> dict[str, Any]:
-        return json.loads(json.dumps({"endpoint": self.cfg.endpoint, "token_set": bool(self.cfg.token)}))
+        return json.loads(
+            json.dumps({"endpoint": self.cfg.endpoint, "token_set": bool(self.cfg.token)})
+        )

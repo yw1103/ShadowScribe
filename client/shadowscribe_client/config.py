@@ -10,6 +10,7 @@ Resolution order (first hit wins):
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -66,8 +67,7 @@ class ClientConfig:
         path = self.home()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
-        try:
-            path.chmod(0o600)  # holds a bearer token
-        except OSError:
-            pass
+        # best effort: the file holds a bearer token
+        with contextlib.suppress(OSError):
+            path.chmod(0o600)
         return path

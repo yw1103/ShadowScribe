@@ -21,9 +21,12 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
-
 from .asr import AsrSegment
+
+try:  # numpy ships with the optional ``speakers`` extra, not with the core install
+    import numpy as np
+except ImportError:  # pragma: no cover - exercised by the lean CI job
+    np = None  # type: ignore[assignment]
 
 log = logging.getLogger(__name__)
 
@@ -54,12 +57,16 @@ class SpeakerEmbedder:
 
     @property
     def available(self) -> bool:
-        return self._resolve() is not None
+        return np is not None and self._resolve() is not None
 
     def _resolve(self) -> Path | None:
         if self._extractor is not None:
             return Path(self._model_name)
         if self._failed:
+            return None
+        if np is None:
+            log.info("speaker embedding unavailable (numpy not installed)")
+            self._failed = True
             return None
         try:
             import sherpa_onnx  # noqa: F401
@@ -102,10 +109,10 @@ class SpeakerEmbedder:
         ex = self._lazy()
         return int(ex.dim) if ex else 0
 
-    def embed_pcm(self, samples: np.ndarray, sample_rate: int = 16_000) -> np.ndarray | None:
-        """Embed float32 mono samples in [-1, 1]."""
+    def embed_pcm(self, samples, sample_rate: int = 16_000):
+        """Embed float32 mono samples in [-1, 1]. Returns ``None`` when unavailable."""
         ex = self._lazy()
-        if ex is None:
+        if ex is None or np is None:
             return None
         try:
             stream = ex.create_stream()
@@ -120,10 +127,12 @@ class SpeakerEmbedder:
         norm = float(np.linalg.norm(vec))
         return vec / norm if norm > 1e-6 else vec
 
-    def embed_wav(self, wav: Path, start_ms: int = 0, end_ms: int = 0) -> np.ndarray | None:
+    def embed_wav(self, wav: Path, start_ms: int = 0, end_ms: int = 0):
         """Embed a slice of a 16 kHz mono WAV."""
         import wave
 
+        if np is None:
+            return None
         try:
             with wave.open(str(wav), "rb") as fh:
                 rate = fh.getframerate()
@@ -142,7 +151,10 @@ class SpeakerEmbedder:
         return self.embed_pcm(samples, rate)
 
 
-def cosine(a: np.ndarray, b: np.ndarray) -> float:
+def cosine(a, b) -> float:
+    """Cosine similarity of two already-normalised vectors; -1.0 when unusable."""
+    if np is None or a is None or b is None:
+        return -1.0
     if a.size == 0 or b.size == 0 or a.shape != b.shape:
         return -1.0
     return float(np.dot(a, b))
@@ -154,15 +166,15 @@ class SpeakerLabeler:
     def __init__(self, settings, embedder: SpeakerEmbedder | None = None) -> None:
         self.s = settings
         self.embedder = embedder or SpeakerEmbedder(settings)
-        self.owner_vector: np.ndarray | None = None
+        self.owner_vector = None
         self.owner_label = "主人"
 
     # ------------------------------------------------------------- enrollment
-    def load_owner(self, embedding: np.ndarray | None, label: str = "主人") -> None:
+    def load_owner(self, embedding, label: str = "主人") -> None:
         self.owner_vector = embedding
         self.owner_label = label
 
-    def enroll_from_wav(self, wav: Path) -> np.ndarray | None:
+    def enroll_from_wav(self, wav: Path):
         vec = self.embedder.embed_wav(wav)
         if vec is not None:
             self.owner_vector = vec

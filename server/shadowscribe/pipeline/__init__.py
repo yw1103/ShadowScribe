@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from .asr import AsrSegment, Transcriber
 from .audio import AudioError, normalize, probe
-from .distill import Distiller, DistillationResult
+from .distill import DistillationResult, Distiller
 from .runner import Pipeline
 
 __all__ = [

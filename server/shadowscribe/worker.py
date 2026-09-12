@@ -76,7 +76,9 @@ def claim_next_job() -> models.Job | None:
         return job
 
 
-def _finish(job_id: str, *, status: str, result: dict | None = None, error: str | None = None) -> None:
+def _finish(
+    job_id: str, *, status: str, result: dict | None = None, error: str | None = None
+) -> None:
     with Session(get_engine()) as session:
         job = session.get(models.Job, job_id)
         if job is None:
@@ -99,9 +101,7 @@ def run_job(pipeline: Pipeline, job: models.Job) -> None:
 
     log.info("job %s → recording %s (attempt %d)", job.id, job.recording_id, job.attempts)
     try:
-        result = pipeline.process(
-            job.recording_id, index_memory=payload.get("index_memory", True)
-        )
+        result = pipeline.process(job.recording_id, index_memory=payload.get("index_memory", True))
     except Exception as exc:
         will_retry = job.attempts < job.max_attempts
         log.error(

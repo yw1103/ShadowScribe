@@ -1,0 +1,45 @@
+name: Feature request
+description: 提出一个功能或改进
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        在提功能之前，请先回答一个问题：**它是否让影书更"吵"了？**
+
+        影书是单向输入通道——不发声、不弹窗、不主动建议。任何引入主动行为的
+        功能都需要非常强的理由。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你遇到的真实问题
+      description: 请描述问题本身，而不是你设想的解决方案
+      placeholder: 我每天开会回来还是要手动整理一遍才敢给 AI 用，因为……
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你设想的方案
+    validations:
+      required: false
+
+  - type: dropdown
+    id: principle
+    attributes:
+      label: 它和三大原则的关系
+      options:
+        - 不引入任何主动行为，只是让沉淀/检索更好
+        - 需要用户显式触发，不违反静默原则
+        - 可能引入主动行为（请详细说明为什么必要）
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 你考虑过的替代方案
+    validations:
+      required: false

@@ -437,7 +437,9 @@ def complete_upload(upload_id: str):
 # ------------------------------------------------------------------ recall
 
 
-@router.get("/v1/context/brief", response_class=PlainTextResponse, dependencies=[Depends(require_token)])
+@router.get(
+    "/v1/context/brief", response_class=PlainTextResponse, dependencies=[Depends(require_token)]
+)
 def context_brief(
     hours: int = Query(24, ge=1, le=24 * 30),
     since: str | None = Query(None, description="ISO-8601; overrides hours"),
@@ -507,7 +509,11 @@ def get_timeline(day: str | None = Query(None, description="YYYY-MM-DD; defaults
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD") from exc
     items = service.timeline(parsed)
-    return {"day": (parsed or datetime.now().date()).isoformat(), "count": len(items), "items": items}
+    return {
+        "day": (parsed or datetime.now().date()).isoformat(),
+        "count": len(items),
+        "items": items,
+    }
 
 
 @router.get("/v1/search", dependencies=[Depends(require_token)])
@@ -624,9 +630,7 @@ def delete_recording(recording_id: str, keep_memory: bool = Query(True)):
         if rec is None:
             raise HTTPException(status_code=404, detail="unknown recording")
         for model in (models.Segment, models.Commitment, models.Entity, models.Episode):
-            for row in session.exec(
-                select(model).where(model.recording_id == recording_id)
-            ).all():
+            for row in session.exec(select(model).where(model.recording_id == recording_id)).all():
                 session.delete(row)
         for job in session.exec(
             select(models.Job).where(models.Job.recording_id == recording_id)
@@ -710,7 +714,9 @@ async def enroll_speaker(
             )
         vec = embedder.embed_wav(tmp_wav)
         if vec is None:
-            raise HTTPException(status_code=422, detail="could not extract a voiceprint (audio too short?)")
+            raise HTTPException(
+                status_code=422, detail="could not extract a voiceprint (audio too short?)"
+            )
 
         with Session(get_engine()) as session:
             for old in session.exec(

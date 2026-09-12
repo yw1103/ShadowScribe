@@ -37,14 +37,10 @@ class Target:
 
 
 TARGETS: dict[str, Target] = {
-    "cursor": Target(
-        "cursor", ".cursor/rules/shadowscribe.mdc", "Cursor", CURSOR_FRONTMATTER
-    ),
+    "cursor": Target("cursor", ".cursor/rules/shadowscribe.mdc", "Cursor", CURSOR_FRONTMATTER),
     "claude": Target("claude", "CLAUDE.md", "Claude Code / Desktop"),
     "agents": Target("agents", "AGENTS.md", "AGENTS.md convention (Codex, Amp, …)"),
-    "copilot": Target(
-        "copilot", ".github/copilot-instructions.md", "GitHub Copilot"
-    ),
+    "copilot": Target("copilot", ".github/copilot-instructions.md", "GitHub Copilot"),
     "windsurf": Target("windsurf", ".windsurfrules", "Windsurf"),
     "cline": Target("cline", ".clinerules", "Cline / Roo"),
     "gemini": Target("gemini", "GEMINI.md", "Gemini CLI"),

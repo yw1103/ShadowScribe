@@ -431,6 +431,29 @@ def test_brief_default_window_excludes_old_recordings(client, clean_db):
         )
         session.commit()
 
-    assert "没有已处理的录音" in client.get("/v1/context/brief", headers=AUTH).text
+    card = client.get("/v1/context/brief", headers=AUTH).text
+    assert "没有已处理的录音" in card
+    # An empty window with data just outside it must say so, and say how to get
+    # it — otherwise a perfectly working pipeline looks like a broken one.
+    assert "不在当前窗口内" in card
+    assert "--hours" in card
+
     wide = client.get("/v1/context/brief", headers=AUTH, params={"hours": 24 * 20}).text
     assert "没有已处理的录音" not in wide
+
+
+def test_brief_reports_in_flight_recordings(client, clean_db):
+    """Queued work must be distinguishable from no work at all."""
+    client.post(
+        "/v1/ingest/audio",
+        headers=AUTH,
+        files={"file": ("a.wav", SILENT_WAV, "audio/wav")},
+        data={"client_id": "pixel-8"},
+    )
+    assert "正在处理中" in client.get("/v1/context/brief", headers=AUTH).text
+
+
+def test_brief_empty_store_suggests_uploading(client, clean_db):
+    card = client.get("/v1/context/brief", headers=AUTH).text
+    assert "ss status" in card
+    assert "正在处理中" not in card

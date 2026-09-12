@@ -27,16 +27,22 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# Dependencies go in their own layer, installed against a stub package. Editing
+# shadowscribe/ then only invalidates the final `--no-deps` install (seconds)
+# instead of re-resolving ctranslate2 and friends over a slow link (a minute).
 COPY pyproject.toml README.md ./
-COPY shadowscribe ./shadowscribe
-
-RUN pip install --index-url "${PIP_INDEX_URL}" . \
+RUN mkdir -p shadowscribe && touch shadowscribe/__init__.py \
+ && pip install --index-url "${PIP_INDEX_URL}" . \
  && if [ "${INSTALL_MEMORY_BACKEND}" = "true" ]; then \
       pip install --index-url "${PIP_INDEX_URL}" 'causal-memory>=0.9.3' ; \
     fi \
  && if [ "${INSTALL_SPEAKERS}" = "true" ]; then \
       pip install --index-url "${PIP_INDEX_URL}" 'sherpa-onnx>=1.10' 'numpy>=1.24' ; \
-    fi
+    fi \
+ && rm -rf shadowscribe
+
+COPY shadowscribe ./shadowscribe
+RUN pip install --index-url "${PIP_INDEX_URL}" --no-deps .
 
 RUN mkdir -p /data/audio /data/raw /data/models /data/memory
 

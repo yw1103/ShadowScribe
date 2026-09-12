@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     asr_cpu_threads: int = 0
     """0 = let ctranslate2 decide (uses every core)."""
 
+    simplify_chinese: bool = True
+    """Normalise Traditional → Simplified after ASR. Retrieval is substring based,
+    so mixed orthography silently splits one memory into two. No-op if OpenCC is
+    not installed."""
+
     # ------------------------------------------------------------- diarization
     diarization: str = "off"
     """``off`` | ``embedding``. ``embedding`` enables voiceprint-based owner/guest

@@ -135,11 +135,7 @@ def build_brief(options: BriefOptions | None = None, settings=None) -> str:
     span = f"{local_since:%Y-%m-%d %H:%M} → {local_until:%m-%d %H:%M}"
 
     if not recordings:
-        return (
-            f"# 影书 · 现实上下文\n\n"
-            f"_统计区间 {span}：没有已处理的录音。_\n\n"
-            f"> 提示：手机端上传音频后，运行 `ss status` 查看处理进度。\n"
-        )
+        return _empty_card(span, since_naive, s)
 
     open_commitments = [c for c in commitments if c.status == "open"]
     entity_names = _top_entities(entities)
@@ -253,6 +249,47 @@ def _render_edges(episodes: list[models.Episode]) -> list[str]:
         glyph = _EDGE_GLYPH.get(e.get("relation", "caused"), "→")
         out.append(f"- {e['cause']} {glyph} {e['effect']} {tag}".rstrip())
     return out
+
+
+def _empty_card(span: str, since_naive: datetime, s) -> str:
+    """Say *why* the window is empty.
+
+    "No recordings" and "no recordings *inside this window*" look identical to the
+    reader otherwise, and the second one is a silent failure: the pipeline worked,
+    the user sees nothing, and there is no hint about what to change.
+    """
+    with Session(get_engine(s.db_path)) as session:
+        latest = session.exec(
+            select(models.Recording)
+            .where(models.Recording.status == "done")
+            .order_by(desc(models.Recording.recorded_at))
+            .limit(1)
+        ).first()
+        pending = session.exec(
+            select(models.Recording)
+            .where(models.Recording.status.in_(["queued", "processing"]))
+            .order_by(desc(models.Recording.received_at))
+            .limit(1)
+        ).first()
+
+    body = ["# 影书 · 现实上下文", "", f"_统计区间 {span}：没有已处理的录音。_"]
+    if pending is not None:
+        body.append(
+            f"> ⏳ 有录音正在处理中（最近接收于 {pending.received_at:%Y-%m-%d %H:%M}），稍后重跑即可。"
+        )
+    if latest is not None and latest.recorded_at < since_naive:
+        hours = int(
+            (datetime.now(timezone.utc).replace(tzinfo=None) - latest.recorded_at).total_seconds()
+            // 3600
+        )
+        body.append(
+            f"> 📼 更早还有 {latest.recorded_at:%Y-%m-%d} 的录音，不在当前窗口内。"
+            f"用 `ss brief --hours {hours + 1}` 取回。"
+        )
+    if pending is None and latest is None:
+        body.append("> 提示：手机端上传音频后，运行 `ss status` 查看处理进度。")
+    body.append("")
+    return "\n".join(body)
 
 
 def _render_episode_frame(episodes: list[models.Episode], tz, limit: int = 10) -> list[str]:

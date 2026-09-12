@@ -21,6 +21,7 @@ from .. import models
 from ..config import settings as default_settings
 from ..db import get_engine
 from ..memory import get_backend
+from . import text
 from .asr import Transcriber
 from .audio import normalize
 from .diarize import SpeakerEmbedder, SpeakerLabeler
@@ -116,6 +117,11 @@ class Pipeline:
 
         # 2. transcribe ------------------------------------------------------
         segments, language = self.transcriber.transcribe(wav)
+        # Normalise orthography once, here, so segments / facts / edges / the
+        # context card all agree. Doing it later would leave raw segments
+        # searchable only in whichever script Whisper happened to pick.
+        if language and language.startswith("zh"):
+            text.normalize_segments(segments, enabled=self.s.simplify_chinese)
         rec.language = language
         rec.speech_ms = segments[-1].end_ms if segments else 0
         if not rec.duration_ms:

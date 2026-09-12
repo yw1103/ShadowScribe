@@ -198,6 +198,22 @@ docker compose exec api shadowscribe ingest /path/to/some.m4a --hint "与老王�
 docker compose exec api shadowscribe brief
 ```
 
+或者用仓库自带的端到端验证脚本，它会走**真实的手机接入协议**、顺便检查幂等去重、
+然后打印转写、上下文卡片、承诺和检索结果：
+
+```bash
+SS_TOKEN=<你的token> ./scripts/verify_e2e.sh /path/to/some.m4a --hint "与老王在会议室"
+```
+
+没有现成音频？Windows 上可以合成一段（需要中文 SAPI 语音 + ffmpeg）：
+
+```powershell
+.\scripts\generate_demo_audio.ps1 -OutFile C:\tmp\meeting.m4a
+```
+
+这段合成对话刻意包含了 3 个承诺、2 个决策和 1 条教训型因果——
+正确的抽取应该在每个类别都有产出。
+
 ### 2. 起电脑端
 
 ```bash
@@ -400,6 +416,10 @@ ShadowScribe/
 │   ├── memory-model.md
 │   ├── deployment.md
 │   └── roadmap.md
+├── scripts/
+│   ├── verify_e2e.sh              # 端到端验证（走真实接入协议）
+│   ├── generate_demo_audio.ps1    # 合成中文会议音频（Windows）
+│   └── demo_dialogue.zh.txt
 ├── docker-compose.yml
 └── .env.example
 ```

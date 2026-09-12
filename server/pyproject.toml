@@ -30,6 +30,10 @@ dependencies = [
   "pydantic-settings>=2.2",
   "httpx>=0.27",
   "faster-whisper>=1.0.3",
+  # Traditional → Simplified normalisation. Pure Python, ~1 MB. Retrieval is
+  # substring based, so mixed orthography silently splits memories in two; this
+  # degrades to a no-op if the wheel is unavailable.
+  "opencc-python-reimplemented>=0.1.7",
   # Not needed on Linux/macOS (the OS ships the IANA database) but required for
   # correct local-day attribution on Windows and slim container images.
   "tzdata>=2024.1; platform_system == 'Windows'",

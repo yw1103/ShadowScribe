@@ -1,0 +1,80 @@
+name: Release
+
+# Push a tag to publish:
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Builds both packages and attaches them to a GitHub Release, which gives a
+# PyPI-free install path:
+#   pip install "shadowscribe-client[mcp] @ https://github.com/yw1103/ShadowScribe/releases/download/v0.1.0/shadowscribe_client-0.1.0-py3-none-any.whl"
+#
+# Publishing to PyPI itself is a separate, manual step — see CONTRIBUTING.md.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build wheels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build
+
+      - name: Build shadowscribe-client
+        working-directory: client
+        run: python -m build --outdir ../dist
+
+      - name: Build shadowscribe (server)
+        working-directory: server
+        run: python -m build --outdir ../dist
+
+      - name: Verify the wheels actually install and import
+        run: |
+          python -m venv /tmp/verify
+          /tmp/verify/bin/pip install dist/shadowscribe_client-*.whl
+          /tmp/verify/bin/python -c "import shadowscribe_client; print('client', shadowscribe_client.__version__)"
+          # `ss` must be on PATH after install — that is the whole interface.
+          /tmp/verify/bin/ss --help > /dev/null
+          echo "wheel install verified"
+
+      - name: List artifacts
+        run: ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## 安装
+
+            `shadowscribe-client` 尚未发布到 PyPI，请从下面的 wheel 安装（把版本号换成你下载的那个）：
+
+            ```bash
+            pip install "shadowscribe-client[mcp] @ ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/shadowscribe_client-0.1.0-py3-none-any.whl"
+            ```
+
+            或者用仓库里的一键脚本（会自动依次尝试 PyPI → 本地仓库 → GitHub）：
+
+            - Windows：双击 `scripts\setup-client.cmd`
+            - macOS / Linux：`./scripts/setup-client.sh --endpoint ... --token ...`
+
+            完整操作手册见 [`docs/operations.md`](https://github.com/${{ github.repository }}/blob/main/docs/operations.md)。

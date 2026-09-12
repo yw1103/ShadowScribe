@@ -9,10 +9,28 @@ in a machine-learning stack.
 
 ## Install
 
+> Not on PyPI yet. Install from the repository — the setup script tries PyPI,
+> then a local checkout, then GitHub, so you do not have to pick.
+
+**Windows:** double-click `scripts\setup-client.cmd`, or from PowerShell:
+
+```powershell
+..\scripts\setup-client.cmd http://<server>:18080 <SS_TOKEN> -Mcp
+```
+
+**macOS / Linux:**
+
 ```bash
-pip install "shadowscribe-client[mcp]"
+../scripts/setup-client.sh --endpoint http://<server>:18080 --token <SS_TOKEN> --mcp
+```
+
+By hand:
+
+```bash
+pip install ".[mcp]"                                                     # from client/
+pip install "shadowscribe-client[mcp] @ git+https://github.com/yw1103/ShadowScribe.git#subdirectory=client"
 ss login --endpoint http://<server>:18080 --token <SS_TOKEN>
-ss status
+ss doctor
 ```
 
 ## Use

@@ -216,10 +216,28 @@ SS_TOKEN=<你的token> ./scripts/verify_e2e.sh /path/to/some.m4a --hint "与老�
 
 ### 2. 起电脑端
 
+> 客户端**尚未发布到 PyPI**，所以用仓库内的一键脚本安装（它会依次尝试
+> PyPI → 本地仓库 → GitHub，你不需要关心走哪条）。
+
+**Windows**：双击 `scripts\setup-client.cmd`，按提示填地址和 token。
+或者在 PowerShell 里：
+
+```powershell
+cd ShadowScribe\scripts
+.\setup-client.cmd http://<你的服务器>:18080 <SS_TOKEN> -Mcp
+```
+
+**macOS / Linux**
+
 ```bash
-pip install "shadowscribe-client[mcp]"
-ss login --endpoint http://<你的服务器>:18080 --token <SS_TOKEN>
-ss status
+./scripts/setup-client.sh --endpoint http://<你的服务器>:18080 --token <SS_TOKEN> --mcp
+```
+
+手工安装（任选其一）：
+
+```bash
+pip install ".\client[mcp]"                     # 在仓库目录内
+pip install "shadowscribe-client[mcp] @ git+https://github.com/yw1103/ShadowScribe.git#subdirectory=client"
 ```
 
 ### 3. 用起来

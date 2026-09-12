@@ -6,10 +6,29 @@
 
 ## 1. 安装与登录
 
+> 客户端**尚未发布到 PyPI**，所以用仓库内的一键脚本（它会依次尝试
+> PyPI → 本地仓库 → GitHub）。
+
+**Windows**：双击 `scripts\setup-client.cmd`，按提示填地址和 token。
+或者：
+
+```powershell
+cd ShadowScribe\scripts
+.\setup-client.cmd http://<服务器>:18080 <SS_TOKEN> -Mcp
+```
+
+**macOS / Linux**：
+
 ```bash
-pip install "shadowscribe-client[mcp]"
+./scripts/setup-client.sh --endpoint http://<服务器>:18080 --token <SS_TOKEN> --mcp
+```
+
+手工安装：
+
+```bash
+pip install ".\client[mcp]"      # 在仓库目录内
 ss login --endpoint http://<服务器>:18080 --token <SS_TOKEN>
-ss status
+ss doctor
 ```
 
 配置写入 `~/.shadowscribe/config.json`（权限 `600`，因为里面有 token）。

@@ -58,13 +58,42 @@ if [ "$NO_INSTALL" = "1" ]; then
   step "2/5 跳过安装（--no-install）"
 else
   step "2/5 安装客户端（shadowscribe-client[mcp]）"
-  if "$PY" -m pip install --user --upgrade "shadowscribe-client[mcp]" >/tmp/ss-pip.log 2>&1; then
-    good "安装完成"
-  elif "$PY" -m pip install --user --upgrade --break-system-packages "shadowscribe-client[mcp]" >>/tmp/ss-pip.log 2>&1; then
-    good "安装完成（用了 --break-system-packages）"
-  else
+
+  # 依次尝试三个来源。兜底不是可有可无的：这个包还没发布到 PyPI，只写
+  # `pip install shadowscribe-client` 的话用户拿到的是 "No matching
+  # distribution found" —— 而他往往就站在仓库目录旁边，本可以一行装好。
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  LOCAL_CLIENT="$(dirname "$SCRIPT_DIR")/client"
+
+  SPECS=("shadowscribe-client[mcp]")
+  LABELS=("PyPI")
+  if [ -f "$LOCAL_CLIENT/pyproject.toml" ]; then
+    SPECS+=("$LOCAL_CLIENT[mcp]")
+    LABELS+=("本地仓库 $LOCAL_CLIENT")
+  fi
+  SPECS+=("shadowscribe-client[mcp] @ git+https://github.com/yw1103/ShadowScribe.git#subdirectory=client")
+  LABELS+=("GitHub")
+
+  INSTALLED=0
+  for i in "${!SPECS[@]}"; do
+    printf '    尝试：%s\n' "${LABELS[$i]}"
+    if "$PY" -m pip install --user --upgrade "${SPECS[$i]}" >/tmp/ss-pip.log 2>&1; then
+      good "从 ${LABELS[$i]} 安装成功"
+      INSTALLED=1
+      break
+    fi
+    # Debian/Ubuntu 的 externally-managed 环境需要显式放行
+    if "$PY" -m pip install --user --upgrade --break-system-packages "${SPECS[$i]}" >>/tmp/ss-pip.log 2>&1; then
+      good "从 ${LABELS[$i]} 安装成功（用了 --break-system-packages）"
+      INSTALLED=1
+      break
+    fi
+    warn "${LABELS[$i]} 不可用，试下一个"
+  done
+
+  if [ "$INSTALLED" = "0" ]; then
     tail -15 /tmp/ss-pip.log >&2
-    die "pip 安装失败" "$PY -m pip install --user --upgrade \"shadowscribe-client[mcp]\" -i https://pypi.tuna.tsinghua.edu.cn/simple"
+    die "三个来源都装不上" "$PY -m pip install --user --upgrade \"\$PWD/client[mcp]\" -i https://pypi.tuna.tsinghua.edu.cn/simple"
   fi
 fi
 

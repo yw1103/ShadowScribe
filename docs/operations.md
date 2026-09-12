@@ -166,12 +166,26 @@ done
 
 ### 1.3 电脑端安装（一条命令）
 
-#### Windows
+> 客户端**尚未发布到 PyPI**。安装脚本会依次尝试 **PyPI → 本地仓库 → GitHub**，
+> 所以不管哪种情况都能装上，你不需要关心走的是哪条。
+
+#### Windows：双击就行
+
+打开仓库里的 `scripts` 文件夹，**双击 `setup-client.cmd`**，按提示粘贴地址和 token。
+
+> 为什么不是双击 `.ps1`？Windows 默认不把 `.ps1` 关联到 PowerShell（双击会弹
+> 「选择打开方式」），而且默认禁止运行未签名脚本。这是系统设计，所以提供了一个
+> `.cmd` 启动器来绕开这两件事 —— 它会自动用 `-ExecutionPolicy Bypass` 调用，
+> 并在结束时暂停让你看清输出。
+
+想在终端里跑：
 
 ```powershell
 cd ShadowScribe\scripts
-.\setup-client.ps1 -Endpoint http://47.102.212.49:18080 -Token <SS_TOKEN> -Mcp
+.\setup-client.cmd http://47.102.212.49:18080 <SS_TOKEN> -Mcp
 ```
+
+（也可以 `.\setup-client.ps1 -Endpoint ... -Token ...`，但要先确保执行策略允许。）
 
 #### macOS / Linux
 
@@ -182,7 +196,7 @@ cd ShadowScribe\scripts
 脚本会依次做五件事，每步都打印结果：
 
 1. 检查 Python ≥ 3.10
-2. 安装 `shadowscribe-client[mcp]`
+2. 安装 `shadowscribe-client[mcp]`（三个来源依次兜底）
 3. 定位 `ss` 命令（不在 PATH 会告诉你怎么加）
 4. 写入连接配置到 `~/.shadowscribe/config.json`
 5. 运行 `ss doctor` 自检
@@ -192,7 +206,7 @@ cd ShadowScribe\scripts
 #### 手工安装（如果不想用脚本）
 
 ```bash
-pip install "shadowscribe-client[mcp]"
+pip install ".\client[mcp]"      # 在仓库目录内
 ss login --endpoint http://47.102.212.49:18080 --token <SS_TOKEN>
 ss doctor
 ```
@@ -408,9 +422,11 @@ ss login --endpoint URL --token T          # 保存连接信息
 | 卡片说「没有已处理的录音」 | 窗口内没有数据 | 按卡片提示调大 `--hours`；或看 `ss recordings` 是否还在排队 |
 | 有录音但 `status: failed` | 看错误详情 | `ss recordings --status failed`；多半是模型下载失败或磁盘满 |
 | 归属记反 | 声纹没开 / 阈值不合适 | 见 §1.2；`SS_OWNER_THRESHOLD` 微调 |
-| `ss brief` 输出乱码 | 老式 Windows 控制台编码 | 已在 v0.1 修复；升级客户端 `pip install -U shadowscribe-client` |
+| `ss brief` 输出乱码 | 老式 Windows 控制台编码 | 已在 v0.1 修复；`pip install -U ".\client"` 升级客户端 |
 | 检索重复 | 记忆是追加写的，重跑会产生重复边 | 已知限制，见 [`roadmap.md`](roadmap.md) 的「写边幂等」 |
-| MCP 工具调用报错 | `mcp` 包版本 | `pip install -U "shadowscribe-client[mcp]"`（已同时支持 mcp 1.x 与 2.x） |
+| MCP 工具调用报错 | `mcp` 包版本 | `pip install -U ".\client[mcp]"`（已同时支持 mcp 1.x 与 2.x） |
+| 双击 `.ps1` 弹出「选择打开方式」 | Windows 不把 `.ps1` 关联到 PowerShell | 双击 `setup-client.cmd`；这是系统设计，不是脚本坏了 |
+| `setup-client.ps1` 报语法错误 / 中文乱码 | 脚本丢了 UTF-8 BOM，PS 5.1 按 GBK 读 | 用 `.cmd` 启动器；仓库有测试守住这一点 |
 
 ### 看日志
 

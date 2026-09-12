@@ -51,11 +51,6 @@ services:
       SS_ROLE: worker
     volumes:
       - ss-data:/data
-    # Whisper on CPU is throughput-hungry; give it every core it can get.
-    deploy:
-      resources:
-        limits:
-          cpus: "${SS_WORKER_CPUS:-0}"
     logging:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }

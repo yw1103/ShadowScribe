@@ -43,16 +43,36 @@ def _friendly(exc: Exception) -> str:
     )
 
 
-def build_server():
-    """Construct the FastMCP app. Imported lazily so ``ss`` works without ``mcp``."""
+def _server_class():
+    """Return the MCP server class for whichever SDK version is installed.
+
+    ``mcp`` 2.x renamed ``FastMCP`` to ``MCPServer`` (``mcp.server.mcpserver``)
+    while keeping the decorators this module uses. Supporting both is better than
+    pinning ``mcp<2``: the editor decides which SDK lands in the user's
+    environment, and refusing to start on a current release is a worse failure
+    than the rename itself.
+    """
+    try:
+        from mcp.server.mcpserver import MCPServer
+
+        return MCPServer
+    except ImportError:
+        pass
     try:
         from mcp.server.fastmcp import FastMCP
-    except ImportError as exc:  # pragma: no cover - guarded by pyproject extra
+
+        return FastMCP
+    except ImportError as exc:  # pragma: no cover - guarded by the pyproject extra
         raise SystemExit(
             "the MCP server needs the 'mcp' package:  pip install 'shadowscribe-client[mcp]'"
         ) from exc
 
-    mcp = FastMCP(
+
+def build_server():
+    """Construct the MCP app."""
+    Server = _server_class()
+
+    mcp = Server(
         "shadowscribe",
         instructions=(
             "影书 ShadowScribe：主人现实世界（线下对话、会议、电话）的因果记忆。\n"

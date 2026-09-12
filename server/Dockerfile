@@ -10,6 +10,11 @@ FROM python:3.11-slim
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG INSTALL_MEMORY_BACKEND=true
 ARG INSTALL_SPEAKERS=false
+# Debian archive host. Left at upstream by default; mainland builds should set
+# mirrors.aliyun.com or mirrors.tuna.tsinghua.edu.cn. Pulling the package index
+# straight from deb.debian.org takes minutes there, and because the apt layer
+# sits above every Python layer it made *every* rebuild slow.
+ARG APT_MIRROR=deb.debian.org
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -20,7 +25,11 @@ ENV PYTHONUNBUFFERED=1 \
     HF_ENDPOINT=https://hf-mirror.com \
     HF_HUB_DISABLE_XET=1
 
-RUN apt-get update \
+RUN if [ "${APT_MIRROR}" != "deb.debian.org" ]; then \
+      sed -i "s|deb.debian.org|${APT_MIRROR}|g" \
+        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true ; \
+    fi \
+ && apt-get update \
  && apt-get install -y --no-install-recommends \
       ffmpeg libgomp1 curl ca-certificates tini \
  && rm -rf /var/lib/apt/lists/*

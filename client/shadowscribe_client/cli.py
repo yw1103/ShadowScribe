@@ -19,6 +19,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import inject as inject_mod
@@ -294,6 +295,126 @@ def cmd_mcp(args) -> int:
     return 0
 
 
+def cmd_doctor(args) -> int:
+    """One command that answers "is my setup actually working?".
+
+    Walks the whole chain the user depends on — config, network, auth, memory,
+    data freshness, editor targets, MCP availability — and prints an actionable
+    line for anything that is broken, instead of making them guess which of six
+    moving parts failed.
+    """
+    from . import inject as inject_mod
+
+    cfg = ClientConfig.load(
+        endpoint=getattr(args, "endpoint", None), token=getattr(args, "token", None)
+    )
+    rows: list[tuple[bool, str, str]] = []
+    hints: list[str] = []
+
+    if cfg.endpoint != ClientConfig().endpoint or cfg.token:
+        rows.append((True, "config", f"{ClientConfig.home()} → {cfg.endpoint}"))
+    else:
+        rows.append((False, "config", "not configured"))
+        hints.append("运行 `ss login --endpoint <服务端地址> --token <SS_TOKEN>` 保存连接信息")
+
+    rows.append(
+        (bool(cfg.token), "token", f"已设置（{len(cfg.token)} 字符）" if cfg.token else "未设置")
+    )
+    if not cfg.token:
+        hints.append("服务端 .env 里的 SS_TOKEN；`docker compose exec api printenv SS_TOKEN` 可取")
+
+    client = ShadowScribeClient(cfg)
+    start = time.perf_counter()
+    try:
+        reachable = client.ping()
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        rows.append((reachable, "网络可达", f"{cfg.endpoint}/healthz  {elapsed_ms:.0f} ms"))
+        if not reachable:
+            hints.append("服务端没起、端口没开、或内网穿透规则失效")
+    except Exception as exc:  # noqa: BLE001
+        rows.append((False, "网络可达", str(exc)[:80]))
+        hints.append("检查内网穿透是否在线，或先用 `ssh -N -L 18080:127.0.0.1:18080 <host>` 建隧道")
+
+    info: dict = {}
+    try:
+        info = client.health()
+        counts = info.get("recordings", {})
+        rows.append(
+            (
+                True,
+                "鉴权",
+                f"{counts.get('done', 0)} 段已处理 · {counts.get('queued', 0)} 排队 · "
+                f"{counts.get('failed', 0)} 失败 · {counts.get('commitments_open', 0)} 项待办",
+            )
+        )
+        if counts.get("failed"):
+            hints.append("有失败的录音：`ss recordings --status failed` 看原因，可 `ss` 重传")
+        if not counts.get("done"):
+            hints.append("还没有处理完的录音 —— 先从手机上传一段，或 `ss upload <文件>`")
+        backend = info.get("backend")
+        rows.append((backend == "causal-memory", "记忆后端", str(backend)))
+        if backend != "causal-memory":
+            hints.append("causal-memory 未生效，检索能力降级为内置 SQLite")
+    except ShadowScribeError as exc:
+        rows.append((False, "鉴权", str(exc)[:90]))
+        if "401" in str(exc):
+            hints.append("token 不对：重新 `ss login --token <SS_TOKEN>`")
+    except Exception as exc:  # noqa: BLE001
+        rows.append((False, "鉴权", str(exc)[:90]))
+
+    if info:
+        try:
+            card = client.brief(hours=cfg.default_hours, max_tokens=200)
+            fresh = "没有已处理的录音" not in card and "没有记录" not in card
+            rows.append((fresh, f"最近 {cfg.default_hours}h 上下文", "有内容" if fresh else "为空"))
+            if not fresh:
+                hints.append(
+                    f"最近 {cfg.default_hours} 小时内没有可用上下文；"
+                    "或调大窗口：`ss brief --hours 720`"
+                )
+        except Exception as exc:  # noqa: BLE001
+            rows.append((False, "上下文卡片", str(exc)[:80]))
+
+    try:
+        client.commitments(status="open", limit=1)
+        rows.append((True, "承诺接口", "正常"))
+    except Exception as exc:  # noqa: BLE001
+        rows.append((False, "承诺接口", str(exc)[:80]))
+
+    client.close()
+
+    # Editor targets: which rule files exist in the current directory.
+    detected = inject_mod.detect_targets()
+    names = ", ".join(t.label for t, _ in detected) or "无"
+    rows.append((True, "本目录编辑器", names))
+    if not detected:
+        hints.append("当前目录没有编辑器标记文件；`ss inject --target cursor` 可显式指定")
+
+    try:
+        import mcp  # noqa: F401
+
+        rows.append((True, "MCP 依赖", "已安装（`ss mcp` 可用）"))
+    except ImportError:
+        rows.append((False, "MCP 依赖", "未安装"))
+        hints.append('想用 MCP：pip install "shadowscribe-client[mcp]"')
+
+    width = max(len(name) for _, name, _ in rows)
+    failures = 0
+    for ok, name, detail in rows:
+        if not ok:
+            failures += 1
+        print(f"[{'OK  ' if ok else 'MISS'}] {name:<{width}}  {detail}")
+
+    print()
+    if hints:
+        print("建议：")
+        for hint in hints:
+            print(f"  · {hint}")
+        print()
+    print(f"{len(rows) - failures}/{len(rows)} 项通过")
+    return 0 if failures == 0 else 1
+
+
 # ---------------------------------------------------------------------- parser
 
 
@@ -372,6 +493,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("mcp", help="run the stdio MCP server")
     p.set_defaults(func=cmd_mcp)
+
+    p = sub.add_parser("doctor", help="自检：配置 / 网络 / 鉴权 / 数据 / 编辑器 / MCP")
+    p.set_defaults(func=cmd_doctor)
 
     return parser
 

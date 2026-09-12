@@ -8,6 +8,7 @@ Linux-only and UTF-8 by default.
 
 from __future__ import annotations
 
+import argparse
 import io
 
 import pytest
@@ -74,3 +75,34 @@ def test_missing_argument_exits_nonzero():
     with pytest.raises(SystemExit) as exc:
         cli.main(["search"])  # requires a query
     assert exc.value.code != 0
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "login",
+        "status",
+        "brief",
+        "commitments",
+        "search",
+        "timeline",
+        "upload",
+        "recordings",
+        "inject",
+        "mcp",
+        "doctor",
+    ],
+)
+def test_every_documented_command_exists(command):
+    """docs/operations.md lists these; keep the two in sync."""
+    parser = cli.build_parser()
+    subparsers = next(
+        action for action in parser._actions if isinstance(action, argparse._SubParsersAction)
+    )
+    assert command in subparsers.choices
+
+
+def test_doctor_help_works_without_a_server():
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["doctor", "--help"])
+    assert exc.value.code == 0

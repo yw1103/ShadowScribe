@@ -64,6 +64,24 @@
                                      事实   → causal-memory.record_fact()
 ```
 
+**读取侧（同一台机器，同一个进程）**：
+
+```
+编辑器 ──Streamable HTTP──▶ POST /mcp
+                              │
+                              ├─ get_reality_context  ──▶ service.build_brief()
+                              ├─ list_open_commitments ──▶ service.list_commitments()
+                              ├─ search_reality       ──▶ service.semantic_search()
+                              ├─ get_timeline         ──▶ service.timeline()
+                              │      （以上读影书自己的 SQLite）
+                              │
+                              └─ search_memory        ──▶ causal-memory 因果图
+                                 causal_directory          （同进程的 PyO3 绑定）
+```
+
+MCP 端点和它服务的记忆在同一个进程里，所以电脑端**不需要本地代理** ——
+这曾经是一层多余的工作量，见 §4.8。
+
 ---
 
 ## 4. 关键设计决定
@@ -149,11 +167,31 @@ markdown 是这四者唯一的公共格式。没有 JSON→渲染的中间层，
 
 卡片按**价值降序**排列，并且可以按 token 预算**从尾部整段截断**：
 
-1. 进行中的承诺（最重要，且永不截断）
+1. 进行中的承诺（最重要，且永不截断 —— 只截条目并标注还有几项）
 2. 关键决策
 3. 因果脉络
-4. 涉及的人与项目
-5. 原话锚点
+4. 话题片段
+5. 涉及的人与项目
+6. 原话锚点（按录音轮流取，避免一场长会议挤掉短通话）
+
+### 4.8 为什么 MCP 端点跑在服务器上
+
+因为**记忆就在那儿**。端点、因果图和 SQLite 在同一个进程里，把 MCP 放在别处只会
+多一跳。
+
+曾经的做法是在客户端包里放一个 stdio MCP 服务，再由它 HTTP 代理回服务器。代价是：
+电脑上要 `pip install`、要有 Python 环境、要常驻一个子进程 —— 只为把请求转发给
+一台本来就能直连的机器。而且那个常驻进程会锁住自己的可执行文件，让升级失败。
+
+现在编辑器直连 `http://<host>:18080/mcp`，本机零组件。
+
+两个实现上的坑（都在 `mcp_surface.py` 里注释了原因）：
+
+- **不能用 `app.mount("/mcp")`**。Starlette 把它编译成 `^/mcp/(?P<path>.*)$`，
+  裸 `/mcp` 永远匹配不上，父路由会回 307；而 MCP 客户端会不会带着 JSON-RPC body
+  跟随重定向是未定义的。改成显式 `Route` + 内部路径重写。
+- **必须手动组合 lifespan**。Starlette 不会为子应用运行 lifespan，
+  不组合的话 streamable-HTTP 的 session manager 根本不会启动。
 
 ---
 
@@ -199,10 +237,13 @@ mem_facts     扁平事实
                             │
                     你的隧道 / 反向代理
                             │
-                        手机 / 电脑
+                 ┌──────────┴──────────┐
+                 │                     │
+            /v1/ingest/audio          /mcp
+              （手机）            （编辑器，无需 token）
 ```
 
-`/data` 里有：SQLite 库、原始音频、归一化 WAV、Whisper 模型缓存、causal-memory 库。
+`/data` 里有：SQLite 库、原始音频、归一化 WAV、Whisper 缓存、声纹模型、causal-memory 库。
 
 两个容器**共享同一个卷**，通过 SQLite WAL 模式并发读写。API 永远不会被长时间
 的推理阻塞。
@@ -213,6 +254,7 @@ mem_facts     扁平事实
 
 | 限制 | 影响 | 计划 |
 |---|---|---|
+| `/mcp` 不校验 token | 知道地址就能读全部记忆 | 单人自用是有意的；`SS_MCP_REQUIRE_TOKEN=true` 可打开 |
 | 无端侧加密 | 音频明文上传 | MVP 有意为之，见 README「隐私与边界」 |
 | 单 worker | 大量积压时吞吐受限 | 二期加分布式锁 |
 | 无多方说话人聚类 | 只能区分"主人/对方" | v0.2 |

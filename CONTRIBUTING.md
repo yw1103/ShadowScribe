@@ -26,30 +26,29 @@ cd ShadowScribe
 # 服务端
 cd server
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -e '.[memory,speakers,dev]'
+pip install -e '.[memory,speakers,mcp,dev]'
 
 # 电脑端
 cd ../client
-pip install -e '.[mcp,dev]'
+pip install -e '.[dev]'
 ```
 
 需要 `ffmpeg` 在 PATH 上：`apt-get install -y ffmpeg`（或 `brew install ffmpeg`）。
 
 ### 不装重依赖也能跑测试
 
-大部分测试**不依赖** ffmpeg / Whisper / LLM：
+两套测试都**不依赖** ffmpeg / Whisper / 模型 / LLM key：
 
 ```bash
-cd server && pytest              # 单元测试
-cd client && pytest
+cd server && pytest              # 145 个
+cd client && pytest              # 76 个
 ```
 
-需要真实模型的端到端测试标记为 `slow`：
+CI 用的就是最小依赖集（`fastapi uvicorn python-multipart sqlmodel pydantic
+pydantic-settings httpx numpy mcp pytest`），所以"全新 clone 一定能跑起来"
+这件事是被持续验证的 —— 加可选依赖时请一起提供降级路径和测试。
 
-```bash
-pytest -m "not slow"             # 默认
-pytest -m slow                   # 需要 ffmpeg + 模型 + LLM key
-```
+> 两套 `tests` 包同名，**不能在同一次 pytest 调用里一起跑**。分开执行。
 
 ---
 
@@ -95,6 +94,14 @@ labels=None if self.s.diarization == "off" else labels,
 - 改了接口 → 更新 [`docs/ingestion-api.md`](docs/ingestion-api.md)
 - 改了数据结构 → 更新 [`docs/memory-model.md`](docs/memory-model.md)
 - 完成了路线图条目 → 更新 [`docs/roadmap.md`](docs/roadmap.md)
+- 增删 `ss` 子命令 → 更新 [`docs/operations.md`](docs/operations.md) §2.3
+- 改 MCP 工具 → 更新 README 和 [`docs/desktop-integration.md`](docs/desktop-integration.md)
+
+**部分漂移是被测试挡住的**（`server/tests/test_docs.py`）：死链、文档里写了不存在的
+`ss` 子命令或 API 路径、以及列举已被删除的东西（比如 `ss mcp`）。跑 `pytest` 就会报。
+
+> 加一句提醒：文档里**不要写真实 token**。地址可以是真实的，token 必须是占位符 ——
+> 这个仓库是公开的。
 
 ---
 

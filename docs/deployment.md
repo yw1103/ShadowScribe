@@ -46,18 +46,28 @@ docker compose logs -f worker
 docker compose exec api shadowscribe doctor
 ```
 
-期望输出（`speaker embedding` 为 MISS 是正常的，见下文）：
+期望输出：
 
 ```
 [OK  ] ffmpeg              /usr/bin/ffmpeg
 [OK  ] faster-whisper      importable
 [OK  ] memory backend (causal-memory)  {'backend': 'causal-memory', ...}
 [OK  ] LLM distillation    deepseek-chat @ https://api.deepseek.com/v1
-[MISS] speaker embedding   no sherpa-onnx model (SS_SPEAKER_MODEL_DIR)
+[OK  ] speaker embedding   ready
 [OK  ] data dir writable   /data
 
-5/6 checks passed
+6/6 checks passed
 ```
+
+`speaker embedding` 是 MISS 的话看第 4 节；它不影响转写和蒸馏，只影响「主人/对方」归属。
+
+**确认 MCP 端点活着**（电脑端连的就是它）：
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/mcp   # 期望 200
+```
+
+`404` = 镜像里没装 `mcp`。检查 `.env` 的 `INSTALL_MCP=true` 后重建。
 
 **不用手机就能跑通全链路**：
 
@@ -99,9 +109,18 @@ docker compose up -d --force-recreate worker
 
 ## 3. 对外暴露
 
-服务端监听 `0.0.0.0:18080`。**不要**在没有 `SS_TOKEN` 的情况下直接暴露到公网。
+服务端监听 `0.0.0.0:18080`，对外提供两条路径，安全等级不同：
 
-三种推荐方式：
+| 路径 | 用途 | 鉴权 |
+|---|---|---|
+| `/v1/*` | 手机上传、查询、声纹录入 | **需要 `SS_TOKEN`** |
+| `/mcp` | 编辑器拉取上下文 | 默认**不需要**（单人自用），`SS_MCP_REQUIRE_TOKEN=true` 可打开 |
+
+> `/mcp` 默认开放是有意的：单人自用，编辑器配置里少一个 header。
+> **但它会返回全部转写和承诺** —— 这台机器不只你用、或者端口暴露面变大的时候，
+> 先把它设成 `true`。
+
+三种暴露方式：
 
 ### 反向代理 + HTTPS（推荐）
 
@@ -112,6 +131,11 @@ location / {
     proxy_set_header X-Real-IP $remote_addr;
     client_max_body_size 2048m;      # 必须 ≥ SS_MAX_UPLOAD_MB
     proxy_read_timeout 3600s;        # 大文件上传
+
+    # MCP 走 Streamable HTTP（含 SSE），必须关掉缓冲，否则握手会挂住
+    proxy_buffering off;
+    proxy_set_header Connection '';
+    proxy_http_version 1.1;
 }
 ```
 
@@ -129,6 +153,7 @@ ssh -N -L 18080:127.0.0.1:18080 root@<server>
 
 ```bash
 ss login --endpoint http://<公网IP>:<公网端口> --token <SS_TOKEN>
+# 编辑器 MCP 配置里也填这个地址 + /mcp
 ```
 
 > ⚠️ 内网穿透通常**不带 TLS**。Token 与音频会以明文经过中间节点。
@@ -136,7 +161,7 @@ ss login --endpoint http://<公网IP>:<公网端口> --token <SS_TOKEN>
 
 ---
 
-## 4. 声纹（可选，但推荐）
+## 4. 声纹（参考部署已启用）
 
 启用后转写会带 `speaker: owner | guest`，因果归属准确度显著提升。
 
@@ -144,20 +169,25 @@ ss login --endpoint http://<公网IP>:<公网端口> --token <SS_TOKEN>
 # 1. 重建镜像时带上 sherpa-onnx
 INSTALL_SPEAKERS=true docker compose build
 
-# 2. 下载说话人嵌入模型（放在挂载卷里）
-docker compose exec api bash -c '
+# 2. 下载中文说话人嵌入模型（走 hf-mirror：实测 5 MB/s，GitHub release 只有 65 KB/s）
+docker run --rm -v shadowscribe-data:/data alpine sh -c '
   mkdir -p /data/models/speaker && cd /data/models/speaker &&
-  curl -fL -o model.onnx \
-    https://hf-mirror.com/csukuangfj/sherpa-onnx-campplus-zh-cn-16k-common/resolve/main/campplus.onnx
-'
+  curl -fL -o campplus.onnx \
+    https://hf-mirror.com/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx'
 
 # 3. 打开开关
-sed -i 's/^SS_DIARIZATION=.*/SS_DIARIZATION=embedding/' .env
-docker compose up -d --force-recreate
+cat >> .env <<'EOF'
+INSTALL_SPEAKERS=true
+SS_DIARIZATION=embedding
+SS_SPEAKER_MODEL_DIR=/data/models/speaker
+SS_OWNER_THRESHOLD=0.55
+EOF
+docker compose build && docker compose up -d --force-recreate
 ```
 
-> 模型文件名与下载地址可能随上游变化。任何 16 kHz 说话人嵌入 ONNX 放在
-> `SS_SPEAKER_MODEL_DIR` 或 `/data/models/speaker/*.onnx` 都会被自动识别。
+> 模型放在**数据卷里**，跟着卷一起迁移，换机器不用重下。
+> 任何 16 kHz 说话人嵌入 ONNX 放在 `SS_SPEAKER_MODEL_DIR` 或
+> `/data/models/speaker/*.onnx` 都会被自动识别，文件名不重要。
 
 录入主人声纹（**15–60 秒单独说话**）：
 
@@ -166,6 +196,20 @@ curl -X POST http://<server>:18080/v1/speakers/enroll \
   -H "Authorization: Bearer $SS_TOKEN" \
   -F "file=@my_voice.m4a" -F "label=主人"
 ```
+
+**录入后要把已有录音重跑一遍**才会带上标签：
+
+```bash
+for id in $(curl -s -H "Authorization: Bearer $SS_TOKEN" \
+            "http://<server>:18080/v1/recordings?status=done&limit=100" \
+            | python3 -c "import sys,json;[print(r['id']) for r in json.load(sys.stdin)['recordings']]"); do
+  curl -s -X POST -H "Authorization: Bearer $SS_TOKEN" \
+    "http://<server>:18080/v1/recordings/$id/reprocess" > /dev/null && echo "requeued $id"
+done
+```
+
+> **worker 会自动读到新声纹**，不用重启容器 —— 它是按声纹的 id + created_at
+> 判断是否变化的。曾经有个版本把它缓存死在进程里，重跑完全没效果。
 
 ---
 

@@ -17,19 +17,28 @@
 3. **零赘述上下文贯通** —— 用户不应该在"现实"和"AI"之间当搬运工。
    **任何要求用户定期手动运行的命令都是设计缺陷**，包括看起来很方便的那种。
 
+### 架构上的硬约束
+
+**服务器拥有全部状态，电脑端是纯读者。** MCP 端点和记忆在服务器同一个进程里
+（`server/shadowscribe/mcp_surface.py`）。不要往客户端加需要常驻的东西 ——
+曾经有一个 stdio MCP 代理，代价是电脑上要 `pip install`、要有 Python 环境、
+要跑一个子进程，只为把请求转发给一台本来就能直连的机器。
+
+**不要在客户端重复实现服务端已有的能力。**
+
 ---
 
 ## 常用命令
 
 ```bash
 # 服务端
-cd server && pip install -e '.[memory,speakers,dev]'
-pytest -q                       # 不需要 ffmpeg / 模型 / API key
+cd server && pip install -e '.[memory,speakers,mcp,dev]'
+pytest -q                       # 145 个测试，不需要 ffmpeg / 模型 / API key
 ruff check . && ruff format --check .
 
 # 电脑端
-cd client && pip install -e '.[mcp,dev]'
-pytest -q
+cd client && pip install -e '.[dev]'
+pytest -q                       # 76 个测试
 ruff check . && ruff format --check .
 ```
 
@@ -72,6 +81,24 @@ CI 跑 Python 3.10 / 3.11 / 3.12，外加一次 Docker 构建 + 容器冒烟测�
 - **双击 `.ps1` 不会运行**（Windows 不关联），所以提供了 `.cmd` 启动器。
 - **Python 里 spawn 子进程要显式 `encoding="utf-8"`**，否则中文 Windows 用 GBK 解码。
 - **`shutil.which("bash")` 在 Windows 上找到的是 WSL 的**，读不了 `D:\` 路径。
+- **重装本地包必须 `--force-reinstall --no-cache-dir`**。版本号在提交之间不变，
+  而 pip 的 wheel 缓存和 setuptools 的 `build/` 都按版本号索引 —— 不加这两个参数，
+  pip 会"成功"但装的是旧代码。
+- **`ss.exe` 会被占用**。如果 Cursor 还跑着上一次注册的 MCP 进程，pip 卸载会
+  `WinError 32` 并**整体中止，却照样打印 "Successfully built"**。
+  **判断安装成功要看退出码，不是输出文本。**
+
+### 测试要能看见默认值和环境
+
+两个真实盲区，都因为测试环境"太干净"而漏掉了缺陷：
+
+- `conftest.py` 给全套测试设了 `SS_MEMORY_BACKEND`，于是**默认值从没被验证过** ——
+  一个被写坏的默认值一直藏到 Docker 构建才发现。`test_config_defaults.py` 用
+  清空环境的方式构造 `Settings` 来堵这个洞。
+- 客户端测试没清 `SS_ENDPOINT` / `SS_TOKEN`，开发者一旦导出这些变量就会假失败。
+  用 `no_config_env` fixture 统一清理。
+
+加测试时问一句：**这个断言在什么样的环境下会假通过？**
 
 ### 上游 API 会改名，别硬编码
 
@@ -83,7 +110,9 @@ CI 跑 Python 3.10 / 3.11 / 3.12，外加一次 Docker 构建 + 容器冒烟测�
 | `sherpa-onnx` | 1.13 把 `compute_embedding()` 改成 `compute()` |
 | `huggingface_hub` | 新版默认走 Xet，国内镜像不代理，必须 `HF_HUB_DISABLE_XET=1` |
 
-新增第三方调用时，考虑一下版本漂移会不会让它在别人机器上静默失效。
+**更糟的是"优雅降级"会把这类错误藏起来**：`sherpa-onnx` 那次，`AttributeError`
+被宽 `except` 吞掉，对外表现成"音频太短"，排查了很久。降级路径一定要在日志里
+留下**可区分**的原因。
 
 ### 改动会影响别人的机器
 

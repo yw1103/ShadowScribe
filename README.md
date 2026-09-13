@@ -105,9 +105,9 @@
 
 | 状态 | MVP v0.1 | 说明 |
 |---|:---:|---|
-| **A · 静默因果沉淀** | ✅ **已实现** | 手机上传音频 → 转写 → 说话人归属 → 因果/决策/承诺抽取 → 入库 |
-| **C · 电脑工作贯通** | ✅ **已实现** | `ss brief` / `ss inject` / MCP server，一键把上下文塞进 Cursor / Claude |
-| **B · 声纹授权执行** | 🚧 **二期** | 声纹录入（enroll）与比对能力已就位，实时指令拦截与执行器在二期 |
+| **A · 静默因果沉淀** | ✅ **已实现** | 手机上传音频 → 转写 → 声纹说话人归属 → 因果/决策/承诺抽取 → 入库 |
+| **C · 电脑工作贯通** | ✅ **已实现** | Cursor 直连服务器 `/mcp`，零安装；`ss brief` / `ss inject` 作为补充 |
+| **B · 声纹授权执行** | 🚧 **二期** | 声纹录入与比对**已启用**（`SS_DIARIZATION=embedding`）；实时指令拦截与执行器在二期 |
 
 > **为什么二期不做实时？** 实时语音 + 执行实现起来并不难，但**意义不大**。
 > MVP 要验证的唯一命题是：*把一天的对话沉淀成记忆之后，电脑前的 AI 是否真的能少问我几句话。*
@@ -120,8 +120,9 @@
 ```
 ┌──────────────┐   HTTP multipart / chunked   ┌─────────────────────────────────────┐
 │  手机录音端   │ ───────────────────────────▶ │        ShadowScribe Server          │
-│ (你自己实现)  │                              │                                     │
-└──────────────┘                              │  FastAPI  ──▶  SQLite 作业表         │
+│ (你自己实现)  │        /v1/ingest/audio      │            :18080                   │
+└──────────────┘                              │                                     │
+                                              │  FastAPI  ──▶  SQLite 作业表         │
                                               │     │              │                │
                                               │     │              ▼                │
                                               │     │      ┌───────────────┐        │
@@ -140,6 +141,9 @@
                                               │     └─────▶│  记忆底座      │        │
                                               │            │ causal-memory │        │
                                               │            │ (或 native)   │        │
+                                              │            └───────┬───────┘        │
+                                              │   /mcp ◀───────────┘                │
+                                              │   ★ MCP 端点和记忆同进程，本机零安装  │
                                               └───────────────────┬─────────────────┘
                                                                   │
                         ┌─────────────────────────────────────────┘
@@ -147,9 +151,9 @@
         ┌───────────────────────────────────────────┐
         │          电脑工作台（状态 C）               │
         │                                           │
-        │  ss brief      打印上下文卡片 / 复制        │
-        │  ss inject     写进编辑器（没有 MCP 时用）   │
-        │  编辑器直连服务器的 /mcp 端点               │
+        │  Cursor 配一条 URL 直连 /mcp               │
+        │  ss brief      手动看一眼 / 复制到剪贴板    │
+        │  ss inject     快照注入（没有 MCP 时才用）  │
         │                                           │
         │  ▼ 新会话直接输入：「写测试用例」            │
         │  ▼ AI 已经知道今天聊了什么、你承诺了什么     │
@@ -370,22 +374,34 @@ ss upload meeting.m4a --hint "与老王在会议室"
 ss status                       # 服务端健康与存量
 ```
 
-### MCP：让编辑器自己来拉
+### MCP：编辑器和服务器直接对话
 
-在 Cursor / Claude Desktop / Claude Code 的 MCP 配置里加上：
+**MCP 服务跑在服务器上**，和它服务的记忆在同一个进程里。电脑端只写一条 URL：
 
 ```json
 {
   "mcpServers": {
-    "shadowscribe": { "command": "ss", "args": ["mcp"] }
+    "shadowscribe": { "url": "http://<你的服务器>:18080/mcp" }
   }
 }
 ```
 
-暴露的工具：`get_reality_context`、`list_open_commitments`、`search_reality`、
-`get_timeline`、`pending_work_summary`，以及 `shadowscribe://brief` 资源。
+`ss setup` 会替你写好。暴露 6 个工具：
 
-每个工具的说明都写明了**什么时候该调用它**——这样才能让 AI 从"有这个工具"变成"自动继承上下文"。
+| 工具 | 什么时候会被调用 |
+|---|---|
+| `get_reality_context` | 用户给出简短、缺背景的指令时（核心） |
+| `list_open_commitments` | "我还欠谁什么"、排优先级、写周报 |
+| `search_reality` | 提到具体的人/项目/事件，要确认"当初怎么说的" |
+| `get_timeline` | "今天/昨天下午干了什么" |
+| `search_memory` | 在因果图谱里检索（含海马体扩散激活） |
+| `causal_directory` | 最近的「决策 → 结果」边，比拉整张卡片便宜 |
+
+前 4 个读影书自己的感官账本（承诺、转写、时间轴），后 2 个走
+[causal-memory](https://github.com/JingxuanC/causal-memory) 的因果图 —— 两边的数据不重叠。
+
+每个工具的说明都写明了**什么时候该调用它**，服务端的 `instructions` 也明确告诉模型
+"用户给简短指令时先拉上下文，不要反问"。这是从"有这个工具"到"自动继承上下文"的关键差别。
 
 ---
 
@@ -395,11 +411,12 @@ ss status                       # 服务端健康与存量
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `SS_TOKEN` | *(空)* | 所有 `/v1` 接口的 Bearer Token。**公网部署必填** |
+| `SS_TOKEN` | *(空)* | `/v1/*` 接口（上传、查询）的 Bearer Token。**公网部署必填** |
 | `SS_LLM_API_KEY` | *(空)* | 不填则降级为"只存转写、不抽因果" |
 | `SS_LLM_MODEL` | `deepseek-chat` | 任何 OpenAI 兼容端点均可 |
 | `SS_WHISPER_MODEL` | `small` | `small` 首次启动快；`large-v3` 中文质量明显更好 |
 | `SS_DIARIZATION` | `off` | 改 `embedding` 启用声纹「主人 / 对方」归属 |
+| `SS_MCP_REQUIRE_TOKEN` | `false` | `/mcp` 目前不校验 token（单人自用）；对外暴露前改成 `true` |
 | `SS_MEMORY_BACKEND` | `causal-memory` | 或 `native`（内置 SQLite，零额外依赖） |
 | `SS_KEEP_AUDIO` | `true` | 设 `false` 则蒸馏完立即删除音频，只留文字 |
 | `SS_TIMEZONE` | `Asia/Shanghai` | 决定"周四""下周一"换算成哪个日期 |
@@ -424,15 +441,17 @@ ss status                       # 服务端健康与存量
 
 ```
 ShadowScribe/
-├── server/                        # 服务端：耳朵 + 蒸馏
+├── server/                        # 服务端：耳朵 + 蒸馏 + MCP 端点
 │   ├── shadowscribe/
-│   │   ├── api.py                 # HTTP 接口（接入 / 检索 / 声纹）
+│   │   ├── api.py                 # HTTP 接口（接入 / 检索 / 声纹）+ 挂载 /mcp
+│   │   ├── mcp_surface.py         # ★ MCP 端点：编辑器直连这里，本机零安装
 │   │   ├── service.py             # 读模型 —— build_brief() 就是产品本身
 │   │   ├── pipeline/
 │   │   │   ├── audio.py           # ffmpeg 归一化为 16 kHz 单声道
 │   │   │   ├── asr.py             # faster-whisper 转写
 │   │   │   ├── diarize.py         # 声纹主人/对方归属
 │   │   │   ├── distill.py         # LLM 抽取因果 / 决策 / 承诺
+│   │   │   ├── text.py            # 简繁归一化（检索一致性）
 │   │   │   └── runner.py          # 全链路编排
 │   │   ├── memory/                # 可插拔记忆底座
 │   │   │   ├── causal_memory_backend.py
@@ -440,12 +459,13 @@ ShadowScribe/
 │   │   ├── worker.py              # 作业队列消费
 │   │   └── cli.py                 # shadowscribe 运维命令
 │   └── Dockerfile
-├── client/                        # 电脑端：ss CLI（MCP 在服务端，本机零安装）
+├── client/                        # 电脑端：只有 CLI，装不装都行
 │   └── shadowscribe_client/
-│       ├── cli.py
-│       ├── inject.py              # 写进 Cursor / CLAUDE.md 等
-│       └── mcp_server.py
+│       ├── cli.py                 # ss 命令
+│       ├── install.py             # ss setup：写 MCP URL + 静态指令
+│       └── inject.py              # 快照注入（没有 MCP 的客户端才用）
 ├── docs/
+│   ├── operations.md              # ★ 操作手册（先看这份）
 │   ├── architecture.md
 │   ├── ingestion-api.md           # 手机端接入规范
 │   ├── desktop-integration.md
@@ -453,6 +473,7 @@ ShadowScribe/
 │   ├── deployment.md
 │   └── roadmap.md
 ├── scripts/
+│   ├── setup-client.ps1 / .cmd / .sh   # 电脑端一键接线
 │   ├── verify_e2e.sh              # 端到端验证（走真实接入协议）
 │   ├── generate_demo_audio.ps1    # 合成中文会议音频（Windows）
 │   └── demo_dialogue.zh.txt

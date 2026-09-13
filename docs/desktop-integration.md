@@ -2,15 +2,27 @@
 
 状态 C 的完整用法。目标：**打开编辑器新建会话，不写一个字背景，AI 已经知道今天发生了什么。**
 
+**本机不需要装任何东西。** MCP 服务端在服务器上，这里只写一条 URL。
+
 ---
 
-## 1. 安装与登录
+## 1. 接上（一条 URL）
 
-> 客户端**尚未发布到 PyPI**，所以用仓库内的一键脚本（它会依次尝试
-> PyPI → 本地仓库 → GitHub）。
+```json
+{
+  "mcpServers": {
+    "shadowscribe": { "url": "http://<服务器>:18080/mcp" }
+  }
+}
+```
 
-**Windows**：双击 `scripts\setup-client.cmd`，按提示填地址和 token。
-或者：
+写进 `~/.cursor/mcp.json`（全局）或项目内 `.cursor/mcp.json`，重启 Cursor。
+
+**没有 pip install、没有本地进程、没有代理、没有 token。**
+
+### 用脚本自动做（可选，顺便写静态指令）
+
+**Windows**：双击 `scripts\setup-client.cmd`，按提示填地址。或者：
 
 ```powershell
 cd ShadowScribe\scripts
@@ -23,10 +35,14 @@ cd ShadowScribe\scripts
 ./scripts/setup-client.sh --endpoint http://<服务器>:18080 --token <SS_TOKEN>
 ```
 
-手工安装：
+脚本会写 MCP URL、写静态指令，并（可选地）装 `ss` CLI。
+
+### `ss` CLI 是可选的
+
+MCP 不需要它。装它是为了在终端里手动看卡片、上传文件、跑自检：
 
 ```bash
-pip install ".\client[mcp]"      # 在仓库目录内
+pip install ".\client"           # 在仓库目录内
 ss login --endpoint http://<服务器>:18080 --token <SS_TOKEN>
 ss doctor
 ```
@@ -38,7 +54,7 @@ ss doctor
 | 环境变量 | 说明 |
 |---|---|
 | `SS_ENDPOINT` | 服务端基址 |
-| `SS_TOKEN` | Bearer Token |
+| `SS_TOKEN` | `/v1/*` 的 Bearer Token（`/mcp` 不需要） |
 | `SS_CONFIG` | 覆盖配置文件路径 |
 
 项目内可以放 `.shadowscribe.json`（记得加进 `.gitignore`，里面有 token）：
@@ -53,9 +69,9 @@ ss doctor
 
 影书有**两种完全不同的注入方式**，混淆它们会得到一个每天都要手动维护的系统 —— 那正是本项目要消灭的东西。
 
-| | **① 静态指令 + MCP**（无感） | **② 快照**（应急） |
+| | **① 静态指令 + MCP**（默认） | **② 快照**（应急） |
 |---|---|---|
-| 命令 | `ss setup` **跑一次** | `ss inject` 每次都要重跑 |
+| 命令 | 写一条 URL（`ss setup` 或手动） | `ss inject` 每次都要重跑 |
 | 写什么 | 一段**永不变化**的指令："去调 MCP 拿上下文" | 当时那一刻的上下文卡片 |
 | 数据新鲜度 | **实时**（每次对话现拉） | 停在执行命令的那一刻 |
 | 你需要做什么 | **什么都不用做** | 记得手动刷新 |
@@ -64,24 +80,31 @@ ss doctor
 
 ---
 
-### 路径 ①：`ss setup`（跑一次，永久无感）
+### 路径 ①：一条 URL（永久无感）
 
-```bash
-cd 你的项目
-ss setup
+`ss setup` 会替你写这个，手工写也一样：
+
+```json
+{
+  "mcpServers": {
+    "shadowscribe": { "url": "http://<服务器>:18080/mcp" }
+  }
+}
 ```
 
-它做三件事，都不需要重复执行：
+`ss setup` 顺便做三件事，都不需要重复执行：
 
-1. **注册 MCP** —— 写进 `~/.cursor/mcp.json`（Cursor 全局）和 Claude Desktop 配置。
-   合并式写入，**不会动你已有的其他 MCP server**，写前自动备份。
-2. **写静态指令** —— 项目级 `.cursor/rules/shadowscribe.mdc`（`alwaysApply: true`）
-   和 `AGENTS.md`；全局的 `~/.claude/CLAUDE.md`。
-3. **打印一段文字**，让你粘贴到 Cursor → Customize → Rules → **User Rules**。
+1. **写 MCP URL** —— 进 `~/.cursor/mcp.json`（Cursor 全局）和 Claude Desktop 配置。
+   合并式写入，**不会动你已有的其他 MCP server**，写前自动备份；
+   解析不了的 JSON 会**报告并跳过**，而不是覆盖。
+2. **写静态指令** —— 项目级 `.cursor/rules/shadowscribe.mdc`（`alwaysApply: true`）、
+   `AGENTS.md`，以及全局的 `~/.claude/CLAUDE.md`。
+3. **打印一行**，让你贴进 Cursor → Settings → Rules → **User Rules**（可选，见下）。
 
 > **为什么最后一步要手动？** Cursor 唯一有文档保证的*全局*机制是 User Rules，
-> 它存在 Cursor 自己的数据库里，没有公开的文件接口。项目级规则（`.cursor/rules`）
-> 是自动的，但只覆盖那一个项目。粘贴一次 User Rules，之后所有项目都自动生效。
+> 它存在 Cursor 自己的数据库里，没有公开的文件接口 —— 我不打算去改别人的内部存储。
+> 项目级规则（`.cursor/rules`）是自动的，但只覆盖那一个项目。
+> 贴一行 User Rules，之后所有项目都自动生效。**不贴也能用**，只是少了全局覆盖。
 
 静态指令的内容长这样 —— 它**只描述"去哪里拿"，不含任何记忆**，所以永远不会过期：
 
@@ -163,25 +186,31 @@ MCP 端点和它服务的记忆跑在**同一个进程**里（服务器上的 `m
 
 #### 暴露的工具
 
-| 工具 | 什么时候会被调用 |
-|---|---|
-| `get_reality_context(hours, max_tokens)` | 用户给出简短、缺背景的指令时（核心） |
-| `pending_work_summary()` | 新会话开场，拉 48 小时上下文 |
-| `list_open_commitments(status)` | "我还欠什么"、排优先级、写周报 |
-| `search_reality(query, limit)` | 提到具体的人/项目/事件，需要确认"当初怎么说的" |
-| `get_timeline(day)` | "今天/昨天下午都干了什么" |
+| 工具 | 读的是 | 什么时候会被调用 |
+|---|---|---|
+| `get_reality_context(hours, max_tokens)` | 影书感官账本 | 用户给出简短、缺背景的指令时（核心） |
+| `list_open_commitments(status)` | 影书感官账本 | "我还欠什么"、排优先级、写周报 |
+| `search_reality(query, limit)` | 感官账本 + 原始转写 | 提到具体的人/项目/事件，需要确认"当初怎么说的" |
+| `get_timeline(day)` | 影书感官账本 | "今天/昨天下午都干了什么" |
+| `search_memory(query, limit)` | causal-memory 因果图 | 想找"决策 → 结果"的经验 |
+| `causal_directory(limit)` | causal-memory 因果图 | 快速扫一眼最近的决策 |
 
-另有资源 `shadowscribe://brief` 与 `shadowscribe://commitments`，可被支持 resources
-的客户端自动附加。
+前四个读影书自己的 SQLite（承诺、转写、时间轴）；后两个走 causal-memory 的因果图。
+**两边的数据不重叠** —— causal-memory 的 17 个工具里没有承诺也没有时间轴，
+所以只挂它一个是不够的。
 
-#### 为什么工具描述写得那么啰嗦
+没有 MCP resources：全部能力都是工具，因为 agent 需要"按需调用"而不是"被喂"。
+
+#### 为什么工具描述写得那么详细
 
 这是刻意的。AI **不会主动调用一个它不理解用途的工具**。
-`mcp_server.py` 里每个 docstring 都写明了"在什么情况下调用我"，
-server 的 `instructions` 也明确告诉模型：**用户给简短指令时先调
-`get_reality_context`，不要反问"你指的是什么"**。
 
-这就是从"有这个工具"到"自动继承上下文"的关键差别。
+每个 docstring 都写明了"在什么情况下调用我"，服务端的 `instructions` 也明确告诉模型：
+**用户给简短指令时先调 `get_reality_context`，不要反问"你指的是什么"**。
+
+这就是从"有这个工具"到"自动继承上下文"的关键差别。相应地，客户端测试
+（`client/tests/test_mcp.py` 已移除，见 `server/tests/test_mcp_surface.py`）
+断言每个工具都有描述且长度足够 —— 一个空描述等于静默地砍掉一个能力。
 
 ---
 
@@ -189,7 +218,9 @@ server 的 `instructions` 也明确告诉模型：**用户给简短指令时先�
 
 ```bash
 ss login [--endpoint URL] [--token T]     # 保存连接信息
-ss status                                  # 服务端健康与存量统计
+ss setup [--root DIR]                     # 【跑一次】写 MCP URL + 静态指令
+ss doctor                                 # 自检整条链路
+ss status                                 # 服务端健康与存量统计
 ss brief [--hours N] [--max-tokens N]      # 打印上下文卡片
          [--out FILE] [--copy]
          [--no-quotes] [--no-entities]
@@ -200,11 +231,12 @@ ss timeline [--day YYYY-MM-DD]
 ss upload <file> [--hint "与老王在会议室"]
 ss recordings [--limit N] [--status S]
 ss inject [--auto] [--target T]... [--hours N] [--max-tokens N]
-          [--dry-run] [--remove]
-ss mcp                                     # stdio MCP server
+          [--dry-run] [--remove]           # 快照，没有 MCP 时才用
 ```
 
 全局参数：`--endpoint`、`--token`、`--json`。
+
+> 没有 `ss mcp`。MCP 服务端在服务器上，客户端不再提供 stdio MCP。
 
 ---
 

@@ -11,14 +11,17 @@
    ┌─────────────┐        ┌──────────────────────────────┐        ┌──────────────┐
    │   手机       │        │   服务器                      │        │   电脑        │
    │             │        │                              │        │              │
-   │ 录音        │  HTTP  │  内网穿透 ──▶ 18080          │  HTTP  │  ss CLI      │
-   │ 上传        │ ─────▶ │                              │ ◀───── │  ss mcp      │
-   │             │        │  api 容器 + worker 容器       │        │              │
-   │ 你来实现     │        │  共享 /data 卷                │        │  你只需要用   │
-   └─────────────┘        │  ├ SQLite（录音/转写/承诺）    │        └──────────────┘
+   │ 录音        │  HTTP  │  内网穿透 ──▶ :18080         │  HTTP  │  Cursor 等    │
+   │ 上传        │ ─────▶ │  /v1/ingest/audio            │ ◀───── │  直连 /mcp    │
+   │             │        │                              │        │              │
+   │ 你来实现     │        │  api 容器 + worker 容器       │        │  ★ 零安装     │
+   └─────────────┘        │  共享 /data 卷                │        │  （可选 ss）  │
+                          │  ├ SQLite（录音/转写/承诺）    │        └──────────────┘
                           │  ├ 音频文件                   │
-                          │  ├ Whisper 模型               │
+                          │  ├ Whisper + 声纹模型          │
                           │  └ causal-memory 因果图谱      │
+                          │                              │
+                          │  /mcp ◀── MCP 端点和记忆同进程 │
                           └──────────────────────────────┘
 ```
 
@@ -27,10 +30,10 @@
 | 角色 | 负责 | 不负责 |
 |---|---|---|
 | **手机** | 录音、上传、失败重传 | 不做 VAD、不切片、不转码、不做任何判断 |
-| **服务器** | 转写、说话人归属、因果抽取、记忆存储 | 不发声、不通知、不主动打扰 |
-| **电脑** | 拉取上下文、注入编辑器 | 不需要手写背景说明 |
+| **服务器** | 转写、声纹归属、因果抽取、记忆存储、**对外提供 MCP** | 不发声、不通知、不主动打扰 |
+| **电脑** | 只填一条 URL，让编辑器自己来拉 | 不装包、不起进程、不写背景说明 |
 
-**数据只有一份**：全在服务器 `/data` 卷里。手机和电脑都是无状态的客户端。
+**数据只有一份**：全在服务器 `/data` 卷里。手机是纯写入端，电脑是纯读取端。
 
 ---
 
@@ -47,7 +50,7 @@ curl -s http://127.0.0.1:18080/healthz
 docker compose exec api shadowscribe doctor
 ```
 
-`doctor` 应该输出 6/6 全通过：
+`doctor` 应该 6/6 全通过：
 
 ```
 [OK  ] ffmpeg              /usr/bin/ffmpeg
@@ -56,19 +59,31 @@ docker compose exec api shadowscribe doctor
 [OK  ] LLM distillation    deepseek-chat @ https://api.deepseek.com/v1
 [OK  ] speaker embedding   ready
 [OK  ] data dir writable   /data
+6/6 checks passed
 ```
 
-**拿到两样东西**，电脑端要用：
+**确认 MCP 端点活着**（电脑端要靠它）：
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/mcp   # 期望 200
+curl -s http://127.0.0.1:18080/ | python3 -m json.tool | grep mcp     # 期望 "mcp": "/mcp"
+```
+
+`404` 说明镜像里没装 `mcp` 依赖 —— 检查 `.env` 的 `INSTALL_MCP=true` 后重建。
+
+**电脑端需要两样东西**：
 
 ```bash
 # 1) 外网地址（内网穿透给你的）
 #    本项目参考部署：http://47.102.212.49:18080
 
-# 2) SS_TOKEN
+# 2) SS_TOKEN —— 上传接口要用
 docker compose exec -T api printenv SS_TOKEN
 ```
 
-> ⚠️ `SS_TOKEN` 是唯一凭据。**不要提交到 git，不要发到公开场合。**
+> ⚠️ `SS_TOKEN` 保护 `/v1/*`（上传、查询、声纹录入）。**不要提交到 git。**
+> `/mcp` 目前不校验 token（单人自用），对外的机器应该把 `SS_MCP_REQUIRE_TOKEN`
+> 设成 `true`。
 
 ---
 
@@ -114,9 +129,9 @@ curl -X POST http://<服务器地址>/v1/speakers/enroll \
 | `422` + `could not extract a voiceprint` | 音频太短/太吵/没人声 | 重录，至少 15 秒连续说话 |
 | `401` | token 不对 | `docker compose exec -T api printenv SS_TOKEN` |
 
-#### 启用声纹（服务器侧，只需一次）
+#### 声纹在参考部署上已经开好了
 
-参考部署已经开好了。若要自己开：
+本项目参考部署（`47.102.212.49`）已经启用了声纹。自己从零搭才需要下面这些：
 
 ```bash
 cd /opt/shadowscribe/app
@@ -138,6 +153,8 @@ EOF
 # 3) 重建（会把 sherpa-onnx 打进镜像）
 docker compose build && docker compose up -d --force-recreate
 ```
+
+> 模型文件放在**数据卷里**（`/data/models/speaker/`），跟着卷一起迁移，换机器不用重下。
 
 #### 验证声纹生效
 
@@ -164,19 +181,43 @@ done
 
 ---
 
-### 1.3 电脑端安装（一条命令）
+### 1.3 接上电脑端 —— 本机什么都不用装
 
-> 客户端**尚未发布到 PyPI**。安装脚本会依次尝试 **PyPI → 本地仓库 → GitHub**，
-> 所以不管哪种情况都能装上，你不需要关心走的是哪条。
+**MCP 服务跑在服务器上**，所以电脑只需要一条配置：
 
-#### Windows：双击就行
+```json
+{
+  "mcpServers": {
+    "shadowscribe": { "url": "http://47.102.212.49:18080/mcp" }
+  }
+}
+```
 
-打开仓库里的 `scripts` 文件夹，**双击 `setup-client.cmd`**，按提示粘贴地址和 token。
+写进 `~/.cursor/mcp.json`（全局）或项目内 `.cursor/mcp.json`，重启 Cursor 即可。
 
-> 为什么不是双击 `.ps1`？Windows 默认不把 `.ps1` 关联到 PowerShell（双击会弹
-> 「选择打开方式」），而且默认禁止运行未签名脚本。这是系统设计，所以提供了一个
-> `.cmd` 启动器来绕开这两件事 —— 它会自动用 `-ExecutionPolicy Bypass` 调用，
-> 并在结束时暂停让你看清输出。
+**没有 pip install、没有本地进程、没有代理。**
+
+#### 用脚本自动做（可选）
+
+跑一次就会写好上面那条配置，并附赠一段"什么时候该调工具"的静态指令：
+
+```powershell
+.\scripts\setup-client.cmd http://47.102.212.49:18080 <SS_TOKEN>   # Windows，可双击
+```
+
+```bash
+./scripts/setup-client.sh --endpoint http://47.102.212.49:18080 --token <SS_TOKEN>
+```
+
+> 脚本会依次尝试 **PyPI → 本地仓库 → GitHub** 三个来源安装 `ss` CLI。**这个安装是可选的** ——
+> 不装 `ss` 也不影响 Cursor 用 MCP，只是少了终端里手动看卡片的能力。
+> （包尚未发布到 PyPI，所以本地仓库那条通常最先成功。）
+
+#### Windows：为什么双击的是 `.cmd` 不是 `.ps1`
+
+Windows 默认不把 `.ps1` 关联到 PowerShell（双击会弹「选择打开方式」），而且默认禁止
+运行未签名脚本。这是系统设计，所以提供了一个 `.cmd` 启动器绕开这两件事 —— 它会自动
+用 `-ExecutionPolicy Bypass` 调用，并在结束时暂停让你看清输出。
 
 想在终端里跑：
 
@@ -196,19 +237,31 @@ cd ShadowScribe\scripts
 脚本会依次做六件事，每步都打印结果：
 
 1. 检查 Python ≥ 3.10
-2. 安装 `shadowscribe-client[mcp]`（三个来源依次兜底）
+2. 安装 `ss` CLI（三个来源依次兜底；**这一步是可选的**）
 3. 定位 `ss` 命令（不在 PATH 会告诉你怎么加）
 4. 写入连接配置到 `~/.shadowscribe/config.json`
 5. 运行 `ss doctor` 自检
-6. **接线**：注册 MCP + 写永不变化的静态指令
+6. **接线**：把 MCP 的 URL 写进编辑器配置 + 写一段永不变化的静态指令
 
-第 6 步是「无感」的关键：跑完它之后，你就再也不需要运行任何影书命令。
+第 6 步才是关键，而且它其实就是**写一条 URL** —— 没有任何本地组件。
 细节见 [§2.2](#22-电脑端--你其实什么都不用做)。
 
-#### 手工安装（如果不想用脚本）
+#### 手工配置（连脚本都不用跑）
+
+只要往 `~/.cursor/mcp.json` 里加这一段，重启 Cursor 就完事：
+
+```json
+{
+  "mcpServers": {
+    "shadowscribe": { "url": "http://47.102.212.49:18080/mcp" }
+  }
+}
+```
+
+`ss` CLI 是可选的补充。想装的话：
 
 ```bash
-pip install ".\client[mcp]"      # 在仓库目录内
+pip install ".\client"           # 在仓库目录内
 ss login --endpoint http://47.102.212.49:18080 --token <SS_TOKEN>
 ss doctor
 ```
@@ -224,10 +277,10 @@ ss doctor
 [OK  ] 最近 24h 上下文  有内容
 [OK  ] 承诺接口      正常
 [OK  ] 本目录编辑器    GitHub Copilot
-[OK  ] MCP 依赖      已安装（`ss mcp` 可用）
-
-9/9 项通过
+[OK  ] MCP 端点      http://47.102.212.49:18080/mcp → 200
 ```
+
+`MCP 端点` 那一项是探服务器上有没有挂载 `/mcp`：**404 说明镜像里漏了 `mcp` 依赖**。
 
 ---
 
@@ -274,7 +327,7 @@ recorded_at   = 2026-01-08T14:05:00+08:00                ← 强烈建议填
 
 | | **静态指令 + MCP**（默认） | **快照**（应急） |
 |---|---|---|
-| 命令 | `ss setup` **跑一次** | `ss inject` 每次重跑 |
+| 命令 | `ss setup` **跑一次**（只写一条 URL） | `ss inject` 每次重跑 |
 | 内容 | "去调 MCP 拿上下文"这句话 | 当时那一刻的上下文卡片 |
 | 新鲜度 | **实时** | 停在执行命令那一刻 |
 | 你要做的 | **什么都不做** | 记得手动刷新 |
@@ -288,7 +341,7 @@ recorded_at   = 2026-01-08T14:05:00+08:00                ← 强烈建议填
 #### 验证接线是否生效
 
 ```bash
-ss doctor          # 看 MCP 依赖那一行
+ss doctor          # 看「MCP 端点」那一行
 ```
 
 然后在 Cursor 里新开一个会话，问一句 **"我今天答应了谁什么"**。
@@ -353,32 +406,36 @@ ss inject --auto
 
 #### MCP 暴露了什么
 
-`ss setup` 已经注册好了。手工注册的话：
+**MCP 端点和记忆跑在服务器的同一个进程里**，所以配置里没有 `command`、没有 `args`、
+没有 header —— 只有 URL：
 
 ```json
 {
   "mcpServers": {
-    "shadowscribe": {
-      "url": "http://<服务器>:18080/mcp",
-      "headers": { "Authorization": "Bearer <SS_TOKEN>" }
-    }
+    "shadowscribe": { "url": "http://<服务器>:18080/mcp" }
   }
 }
 ```
 
-暴露 5 个工具 + 2 个资源：
+暴露 6 个工具：
 
-| 工具 | 什么时候会被调用 |
-|---|---|
-| `get_reality_context` | 用户给出简短、缺背景的指令时（核心） |
-| `pending_work_summary` | 新会话开场 |
-| `list_open_commitments` | "我还欠什么"、排优先级、写周报 |
-| `search_reality` | 提到具体的人/项目/事件，要确认"当初怎么说的" |
-| `get_timeline` | "今天/昨天下午干了什么" |
-| `shadowscribe://brief` | 资源，可被客户端自动附加 |
-| `shadowscribe://commitments` | 资源 |
+| 工具 | 读的是 | 什么时候会被调用 |
+|---|---|---|
+| `get_reality_context` | 影书感官账本 | 用户给出简短、缺背景的指令时（核心） |
+| `list_open_commitments` | 影书感官账本 | "我还欠什么"、排优先级、写周报 |
+| `search_reality` | 感官账本 + 原始转写 | 提到具体的人/项目/事件，要确认"当初怎么说的" |
+| `get_timeline` | 影书感官账本 | "今天/昨天下午干了什么" |
+| `search_memory` | causal-memory 因果图 | 想找"决策 → 结果"的经验 |
+| `causal_directory` | causal-memory 因果图 | 快速扫一眼最近的决策，比拉整张卡片便宜 |
+
+**为什么两套并存**：`causal-memory` 的 17 个工具里**没有**承诺、时间轴、话题片段 ——
+那些从来没进过它的因果图，只存在影书自己的 SQLite 里。agent 不应该需要知道该问哪个库。
 
 配置好之后，新会话直接打「写测试用例」，AI 会自己调用 `get_reality_context`。
+
+> 端点同时接受 `/mcp` 和 `/mcp/`。Starlette 的 `Mount` 编译出来是 `^/mcp/…$`，
+> 裸 `/mcp` 会撞 307，而 MCP 客户端会不会带着 JSON-RPC body 跟随重定向是不确定的，
+> 所以服务端做了内部路径重写。
 
 ### 2.3 全部命令
 
@@ -394,7 +451,6 @@ ss timeline [--day YYYY-MM-DD]             # 某天的时间轴
 ss recordings [--status failed]            # 上传/处理状态
 ss upload <文件> [--hint "..."]             # 从电脑上传一段音频（测试用）
 ss inject [--auto|--target X] [--remove]   # 写【快照】进编辑器（没有 MCP 时才用）
-ss mcp                                     # 启动 MCP 服务（`ss setup` 注册的就是它）
 ss login --endpoint URL --token T          # 保存连接信息
 ```
 
@@ -460,7 +516,9 @@ ss login --endpoint URL --token T          # 保存连接信息
 | 归属记反 | 声纹没开 / 阈值不合适 | 见 §1.2；`SS_OWNER_THRESHOLD` 微调 |
 | `ss brief` 输出乱码 | 老式 Windows 控制台编码 | 已在 v0.1 修复；`pip install -U ".\client"` 升级客户端 |
 | 检索重复 | 记忆是追加写的，重跑会产生重复边 | 已知限制，见 [`roadmap.md`](roadmap.md) 的「写边幂等」 |
-| MCP 工具调用报错 | `mcp` 包版本 | `pip install -U ".\client[mcp]"`（已同时支持 mcp 1.x 与 2.x） |
+| Cursor 里看不到 shadowscribe 工具 | MCP 没连上 | `curl <地址>/mcp` 应返回 200；重启 Cursor；看 Output → MCP Logs |
+| `pip install` 说成功但 `ss` 还是旧版 | 版本号没变，pip 复用了 wheel 缓存 | `pip install --force-reinstall --no-cache-dir ".\client"` |
+| `WinError 32` / `ss.exe` 无法替换 | Cursor 正跑着旧的 MCP 进程占用文件 | 关掉 Cursor 再装 |
 | 双击 `.ps1` 弹出「选择打开方式」 | Windows 不把 `.ps1` 关联到 PowerShell | 双击 `setup-client.cmd`；这是系统设计，不是脚本坏了 |
 | `setup-client.ps1` 报语法错误 / 中文乱码 | 脚本丢了 UTF-8 BOM，PS 5.1 按 GBK 读 | 用 `.cmd` 启动器；仓库有测试守住这一点 |
 

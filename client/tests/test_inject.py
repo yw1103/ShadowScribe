@@ -138,20 +138,33 @@ def test_every_target_has_a_distinct_path():
 # -------------------------------------------------------------------- config
 
 
-def test_config_precedence_flags_beat_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("SS_CONFIG", str(tmp_path / "cfg.json"))
-    monkeypatch.setenv("SS_ENDPOINT", "http://from-env")
-    monkeypatch.setenv("SS_TOKEN", "env-token")
-    monkeypatch.chdir(tmp_path)
+@pytest.fixture()
+def no_config_env(monkeypatch):
+    """Clear the env vars that outrank the config file.
+
+    Environment beats file in :meth:`ClientConfig.load`, so a developer with
+    ``SS_ENDPOINT`` / ``SS_TOKEN`` exported — or a CI job that sets them — would
+    see the file-based expectations shadowed and these tests fail for reasons
+    unrelated to the behaviour under test.
+    """
+    for name in ("SS_ENDPOINT", "SS_TOKEN", "SS_CONFIG"):
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+def test_config_precedence_flags_beat_env(tmp_path, no_config_env):
+    no_config_env.setenv("SS_CONFIG", str(tmp_path / "cfg.json"))
+    no_config_env.setenv("SS_ENDPOINT", "http://from-env")
+    no_config_env.setenv("SS_TOKEN", "env-token")
+    no_config_env.chdir(tmp_path)
 
     assert ClientConfig.load().endpoint == "http://from-env"
     assert ClientConfig.load(endpoint="http://from-flag").endpoint == "http://from-flag"
 
 
-def test_config_project_file_overrides_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("SS_CONFIG", str(tmp_path / "home.json"))
-    monkeypatch.delenv("SS_ENDPOINT", raising=False)
-    monkeypatch.chdir(tmp_path)
+def test_config_project_file_overrides_home(tmp_path, no_config_env):
+    no_config_env.setenv("SS_CONFIG", str(tmp_path / "home.json"))
+    no_config_env.chdir(tmp_path)
 
     (tmp_path / "home.json").write_text(
         json.dumps({"endpoint": "http://home", "token": "home-token"}), encoding="utf-8"
@@ -165,9 +178,10 @@ def test_config_project_file_overrides_home(tmp_path, monkeypatch):
     assert cfg.token == "home-token"  # unspecified keys still fall through
 
 
-def test_config_save_is_round_trippable(tmp_path, monkeypatch):
+def test_config_save_is_round_trippable(tmp_path, no_config_env):
     target = tmp_path / "nested" / "config.json"
-    monkeypatch.setenv("SS_CONFIG", str(target))
+    no_config_env.setenv("SS_CONFIG", str(target))
+    no_config_env.chdir(tmp_path)
 
     cfg = ClientConfig.load()
     cfg.endpoint = "http://saved"
@@ -180,12 +194,11 @@ def test_config_save_is_round_trippable(tmp_path, monkeypatch):
     assert reloaded.token == "saved-token"
 
 
-def test_config_ignores_corrupt_file(tmp_path, monkeypatch):
+def test_config_ignores_corrupt_file(tmp_path, no_config_env):
     bad = tmp_path / "config.json"
     bad.write_text("{not json", encoding="utf-8")
-    monkeypatch.setenv("SS_CONFIG", str(bad))
-    monkeypatch.delenv("SS_ENDPOINT", raising=False)
-    monkeypatch.chdir(tmp_path)
+    no_config_env.setenv("SS_CONFIG", str(bad))
+    no_config_env.chdir(tmp_path)
 
     # must fall back to defaults rather than raising on every `ss` invocation
     assert ClientConfig.load().endpoint.startswith("http")

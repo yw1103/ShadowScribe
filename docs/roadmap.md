@@ -12,20 +12,26 @@
 
 已交付：
 
-- [x] 异步管线：上传 → ffmpeg 归一化 → faster-whisper → 说话人归属 → LLM 因果蒸馏 → 入库
+- [x] 异步管线：上传 → ffmpeg 归一化 → faster-whisper → 声纹归属 → LLM 因果蒸馏 → 入库
 - [x] 三种上传方式：multipart / 裸 body / 分片续传，全部按内容 SHA-256 幂等
 - [x] 因果蒸馏输出结构化的 `cause → effect` 边、决策、承诺、事实、实体
-- [x] 上下文卡片 `build_brief()`，按 token 预算从尾部整段截断
+- [x] 上下文卡片 `build_brief()`，按 token 预算整段截断（承诺永不整段丢弃）
 - [x] `causal-memory` 集成（Python 绑定），带 `native` SQLite 自动降级
-- [x] `ss` CLI：`brief` / `commitments` / `search` / `timeline` / `upload` / `status`
-- [x] `ss inject`：把卡片写进 Cursor / CLAUDE.md / AGENTS.md / Copilot / Windsurf / Cline
-- [x] MCP server（stdio），5 个工具 + 2 个资源
-- [x] 声纹录入 API 与主观/客观二分归属
+- [x] **MCP 端点跑在服务器上**（`/mcp`），编辑器直连，本机零安装
+- [x] `ss` CLI：`setup` / `doctor` / `brief` / `commitments` / `search` / `timeline` /
+      `upload` / `status`
+- [x] `ss inject`：快照写进 Cursor / CLAUDE.md / AGENTS.md / Copilot / Windsurf / Cline
+      （给没有 MCP 的客户端用）
+- [x] 声纹录入 API 与主人/对方二分归属，**参考部署已启用**
+- [x] 简繁归一化，避免同一件事裂成两条记忆
 - [x] Docker Compose 单卷部署 + `shadowscribe doctor`
-- [x] 中文优先的文档：README、架构、接入协议、记忆模型、部署
+- [x] 中文优先的文档：README、操作手册、架构、接入协议、记忆模型、部署
 
 **刻意不做**：实时语音、声纹指令拦截、执行器、端侧加密、多方聚类。
 理由见 [architecture.md §4.1](architecture.md#41-为什么用异步而不是实时)。
+
+**刻意后置**：`/mcp` 的鉴权。单人自用阶段一个 header 只增加摩擦，
+`SS_MCP_REQUIRE_TOKEN=true` 一行就能打开。
 
 ---
 
@@ -41,6 +47,8 @@
 - [ ] **写边幂等**：让 `reprocess --index-memory` 不再重复写入（按
       `(cause, effect, task_tag)` 去重）
 - [ ] **`ss watch`**：常驻终端小面板，显示队列深度与最新流入的记忆
+- [ ] **`/mcp` 鉴权开关**：默认打开 `SS_MCP_REQUIRE_TOKEN`，并在 `ss setup` 里
+      自动写入 header
 
 ---
 

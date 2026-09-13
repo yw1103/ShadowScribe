@@ -319,12 +319,12 @@ features = self.feature_extractor(audio, chunk_length=chunk_length)   # 整段�
 `asr.py::_transcribe_windows` 在录音长于 `SS_ASR_WINDOW_S`（默认 1800 s）时，
 逐窗读取 PCM 并分别喂给模型，时间戳累加偏移后拼回去。
 
-同一个 2 小时文件、同一个镜像，只切 `SS_ASR_WINDOW_S`：
+同一个 2 小时文件、同一个镜像，背靠背只切 `SS_ASR_WINDOW_S`：
 
 | | `SS_ASR_WINDOW_S=0`（整段） | `SS_ASR_WINDOW_S=1800`（默认） |
 |---|---|---|
-| 峰值内存 | 7247 MB | **2577 MB** |
-| 纯 ASR 耗时 | 1036 s（6.95x） | **966 s（7.45x）** |
+| 峰值内存 | 7247 MB | **2577 MB**（-64%） |
+| 纯 ASR 耗时 | 1039 s（6.93x） | **966 s（7.45x）** |
 | 段数 | 1169 | 1183（+1.2%，切点边界差异） |
 
 窗口化不只是更省内存，还**略快**：整段路径要先用 PyAV 把整个文件解出来再拼成一个

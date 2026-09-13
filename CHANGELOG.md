@@ -23,6 +23,10 @@
 - `ss doctor`：自检配置 / 网络 / 鉴权 / 数据新鲜度 / 编辑器 / **MCP 端点**
 - 简繁归一化（`pipeline/text.py`），避免 `登录页` 与 `登錄頁` 裂成两条记忆
 - `INSTALL_MCP` 构建开关；`test_config_defaults.py` 守住「默认值必须是合法默认值」
+- **超长录音分窗解码**（`SS_ASR_WINDOW_S`，默认 1800 s）。`faster-whisper` 对整段
+  音频做一次 STFT，峰值内存实测 ≈ 0.63 GB + 3.3 GB × 音频小时数（0.5/1/2 小时
+  三个点精确共线），一整天一个文件要约 80 GB。分窗后峰值只取决于窗口大小，
+  切点在静音处、语言只检测一次。实测数据见 `docs/architecture.md` §7
 
 ### Fixed
 
@@ -41,6 +45,9 @@
 - **`ss brief` 在 Windows 控制台崩溃**：GBK 编不了卡片里的 emoji
 - **`/mcp` 裸路径 307**：Starlette 的 `Mount` 正则要求尾斜杠，改为显式 Route +
   内部路径重写
+- **长录音会把宿主机内存吃光**：`faster_whisper.transcribe(chunk_length=…)` 的
+  `chunk_length` 只影响滑窗步进，整段 STFT 照旧 —— 一个 8 小时文件要约 27 GB，
+  而 worker 没有内存上限。改为分窗解码
 
 ### Removed
 

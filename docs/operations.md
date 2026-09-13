@@ -499,7 +499,26 @@ ss login --endpoint URL --token T          # 保存连接信息
 | `SS_AUDIO_RETENTION_DAYS` | `30` | `shadowscribe prune` 的保留期 |
 | `SS_TIMEZONE` | `Asia/Shanghai` | 决定「周四」换算成哪天 |
 | `SS_WHISPER_INITIAL_PROMPT` | 空 | 填你的专有名词，提升识别率，如 `影书、MCP、Cursor、登录页` |
-| `SS_MAX_UPLOAD_MB` | `2048` | 手机单次上传上限 |
+| `SS_MAX_UPLOAD_MB` | `2048` | 手机单次上传上限（磁盘闸门，不是内存） |
+| `SS_ASR_WINDOW_S` | `1800` | 超长录音按多少秒一个窗口解码，`0` 关闭 |
+| `SS_DISTILL_WINDOW_S` | `720` | 每多少秒转写调一次 LLM |
+
+### 4.1 这台机器扛得住多大的录音
+
+实测（`small` int8，参考服务器 40 vCPU / 62 GB）：
+
+- **内存 ≈ 0.63 GB + 3.3 GB × 音频小时数**（0.5 h→2.3 GB、1 h→3.9 GB、2 h→7.2 GB）。
+  这是 `faster-whisper` 对**整段**音频做一次 STFT 的代价。
+- **速度约 7x realtime**：2 小时录音端到端 18.9 分钟，其中 ASR 占 92%。
+- 超过 `SS_ASR_WINDOW_S`（默认 30 分钟）的录音会**自动按窗口解码**，峰值内存不再
+  随录音变长——30 分钟窗口约 2.3 GB，8 小时文件也是这个数。
+
+所以：**手机端每 5–15 分钟传一段是最省事也最安全的做法**；就算某天传上来一个
+8 小时的大文件，服务端也不会把宿主机拖垮，只是会占住 worker 约 70 分钟。
+原理、公式与尚未做的优化见 [`architecture.md` §7](architecture.md#7-长录音实测容量与窗口化)。
+
+> worker 没有内存上限。如果宿主机上还跑着别的服务，给
+> `docker-compose.yml` 的 worker 加 `mem_limit` 比调小窗口更直接。
 
 ---
 

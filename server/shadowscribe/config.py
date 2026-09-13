@@ -82,6 +82,17 @@ class Settings(BaseSettings):
     asr_cpu_threads: int = 0
     """0 = let ctranslate2 decide (uses every core)."""
 
+    asr_window_s: int = 1800
+    """Decode recordings longer than this many seconds in windows instead of all
+    at once. 0 disables windowing.
+
+    Not a speed knob. ``faster_whisper`` builds the log-Mel spectrogram of the
+    whole input in a single STFT, so peak RSS grows about 3.3 GB per hour of
+    audio — measured on the reference box: 0.5 h → 2.3 GB, 2 h → 7.2 GB. A day
+    in one file would ask for ~53 GB and take the host down with it. Windowing
+    makes the ceiling depend on this number instead of on the recording length.
+    """
+
     simplify_chinese: bool = True
     """Normalise Traditional → Simplified after ASR. Retrieval is substring based,
     so mixed orthography silently splits one memory into two. No-op if OpenCC is

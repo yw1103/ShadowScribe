@@ -355,6 +355,12 @@ curl -X POST "http://<server>:18080/v1/uploads/<upload_id>/complete" \
 - **手机端不需要聪明**：不需要做 VAD、不需要切片、不需要转码，全在服务端完成。
 - **零干扰**：上传接口从不返回建议、提示或需要用户确认的内容。
 
+**容量（实测，`small` int8）**：峰值内存 ≈ 0.63 GB + 3.3 GB × 音频小时数，速度约
+7x realtime——2 小时录音端到端 18.9 分钟、峰值 7.2 GB。所以手机端**按 5–15 分钟
+分段上传**是最省心的做法。就算某天一次传上来一整天的大文件也不会出事：超过
+`SS_ASR_WINDOW_S`（默认 30 分钟）的录音会自动按窗口解码，峰值内存不再随录音变长。
+原理见 [`docs/architecture.md` §7](docs/architecture.md#7-长录音实测容量与窗口化)。
+
 ---
 
 ## 🖥 电脑端使用
@@ -419,6 +425,7 @@ ss status                       # 服务端健康与存量
 | `SS_MCP_REQUIRE_TOKEN` | `false` | `/mcp` 目前不校验 token（单人自用）；对外暴露前改成 `true` |
 | `SS_MEMORY_BACKEND` | `causal-memory` | 或 `native`（内置 SQLite，零额外依赖） |
 | `SS_KEEP_AUDIO` | `true` | 设 `false` 则蒸馏完立即删除音频，只留文字 |
+| `SS_ASR_WINDOW_S` | `1800` | 超长录音按窗口解码，峰值内存不再随录音变长 |
 | `SS_TIMEZONE` | `Asia/Shanghai` | 决定"周四""下周一"换算成哪个日期 |
 
 ---

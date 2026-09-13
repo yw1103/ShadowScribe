@@ -38,7 +38,7 @@ ruff check . && ruff format --check .
 
 # 电脑端
 cd client && pip install -e '.[dev]'
-pytest -q                       # 76 个测试
+pytest -q                       # 80 个测试
 ruff check . && ruff format --check .
 ```
 
@@ -69,7 +69,8 @@ CI 跑 Python 3.10 / 3.11 / 3.12，外加一次 Docker 构建 + 容器冒烟测�
 `faster_whisper` 的 `transcribe()` 对**整段**输入做一次 STFT，`chunk_length`
 只影响之后的滑窗步进、**不缩短这次 STFT**。实测峰值内存 ≈ **0.63 GB +
 3.3 GB × 音频小时数**（0.5 h→2.3 GB，1 h→3.9 GB，2 h→7.2 GB，三点精确共线）。
-所以超过 `SS_ASR_WINDOW_S` 的录音必须走 `asr.py::_transcribe_windows` 分窗解码。
+所以超过 `SS_ASR_WINDOW_S` 的录音必须走 `asr.py::_transcribe_windows` 分窗解码，
+分窗后同一个 2 小时文件 **7.2 GB → 2.6 GB**（还略快一点）。
 
 教训是通用的：**"流式 API" 的语义要读源码确认，不能从参数名推断**。
 `docs/architecture.md` §7 有完整的实测表和公式。

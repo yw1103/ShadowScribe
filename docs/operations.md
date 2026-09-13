@@ -65,7 +65,15 @@ docker compose exec api shadowscribe doctor
 **确认 MCP 端点活着**（电脑端要靠它）：
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/mcp   # 期望 200
+# 不要用普通 GET：GET /mcp 是 SSE 通道，服务端发完 200 就一直挂着不返回 body，
+# 任何等 body 的客户端都会超时——这正是 ss doctor 曾经误报 MCP 挂掉的原因。
+# 用一次真实的 initialize 握手（ss doctor 现在也是这么探的）：
+curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 \
+  -X POST -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}' \
+  http://127.0.0.1:18080/mcp                                          # 期望 200
+
 curl -s http://127.0.0.1:18080/ | python3 -m json.tool | grep mcp     # 期望 "mcp": "/mcp"
 ```
 
@@ -511,7 +519,7 @@ ss login --endpoint URL --token T          # 保存连接信息
   这是 `faster-whisper` 对**整段**音频做一次 STFT 的代价。
 - **速度约 7x realtime**：2 小时录音端到端 18.9 分钟，其中 ASR 占 92%。
 - 超过 `SS_ASR_WINDOW_S`（默认 30 分钟）的录音会**自动按窗口解码**，峰值内存不再
-  随录音变长——30 分钟窗口约 2.3 GB，8 小时文件也是这个数。
+  随录音变长——同一个 2 小时文件实测 **7247 MB → 2577 MB，而且略快**。
 
 所以：**手机端每 5–15 分钟传一段是最省事也最安全的做法**；就算某天传上来一个
 8 小时的大文件，服务端也不会把宿主机拖垮，只是会占住 worker 约 70 分钟。
@@ -535,7 +543,7 @@ ss login --endpoint URL --token T          # 保存连接信息
 | 归属记反 | 声纹没开 / 阈值不合适 | 见 §1.2；`SS_OWNER_THRESHOLD` 微调 |
 | `ss brief` 输出乱码 | 老式 Windows 控制台编码 | 已在 v0.1 修复；`pip install -U ".\client"` 升级客户端 |
 | 检索重复 | 记忆是追加写的，重跑会产生重复边 | 已知限制，见 [`roadmap.md`](roadmap.md) 的「写边幂等」 |
-| Cursor 里看不到 shadowscribe 工具 | MCP 没连上 | `curl <地址>/mcp` 应返回 200；重启 Cursor；看 Output → MCP Logs |
+| Cursor 里看不到 shadowscribe 工具 | MCP 没连上 | `ss doctor` 的「MCP 端点」一行；重启 Cursor；看 Output → MCP Logs |
 | `pip install` 说成功但 `ss` 还是旧版 | 版本号没变，pip 复用了 wheel 缓存 | `pip install --force-reinstall --no-cache-dir ".\client"` |
 | `WinError 32` / `ss.exe` 无法替换 | Cursor 正跑着旧的 MCP 进程占用文件 | 关掉 Cursor 再装 |
 | 双击 `.ps1` 弹出「选择打开方式」 | Windows 不把 `.ps1` 关联到 PowerShell | 双击 `setup-client.cmd`；这是系统设计，不是脚本坏了 |

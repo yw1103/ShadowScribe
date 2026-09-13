@@ -64,7 +64,13 @@ docker compose exec api shadowscribe doctor
 **确认 MCP 端点活着**（电脑端连的就是它）：
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18080/mcp   # 期望 200
+# 普通 GET 会一直挂着：GET /mcp 是 SSE 通道，200 之后不返回 body。
+# 用一次 initialize 握手，这也是 ss doctor 的探法。
+curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 \
+  -X POST -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}' \
+  http://127.0.0.1:18080/mcp                                          # 期望 200
 ```
 
 `404` = 镜像里没装 `mcp`。检查 `.env` 的 `INSTALL_MCP=true` 后重建。

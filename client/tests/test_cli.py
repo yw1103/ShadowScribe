@@ -120,3 +120,73 @@ def test_doctor_help_works_without_a_server():
     with pytest.raises(SystemExit) as exc:
         cli.main(["doctor", "--help"])
     assert exc.value.code == 0
+
+
+# ------------------------------------------------------------------ mcp probe
+
+
+class _Cfg:
+    endpoint = "http://host:18080"
+
+
+def _fake_httpx(monkeypatch, *, status=None, raises=None, record=None):
+    """Stand in for httpx.stream, which is a context manager, not a call."""
+    import types
+
+    class _Resp:
+        def __init__(self) -> None:
+            self.status_code = status
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def stream(method, url, **kwargs):
+        if record is not None:
+            record.append((method, url, kwargs))
+        if raises is not None:
+            raise raises
+        return _Resp()
+
+    module = types.SimpleNamespace(stream=stream)
+    monkeypatch.setitem(__import__("sys").modules, "httpx", module)
+
+
+def test_mcp_probe_does_not_wait_for_a_body(monkeypatch):
+    """GET /mcp is an SSE channel: it sends 200 and never finishes the body.
+
+    This is not hypothetical — a plain ``httpx.get`` here raised ReadTimeout and
+    `ss doctor` told the user their MCP server was down while Cursor was happily
+    using it. The probe must therefore stream and read only the status.
+    """
+    record: list = []
+    _fake_httpx(monkeypatch, status=200, record=record)
+
+    ok, detail = cli._probe_mcp(_Cfg())
+
+    assert ok, detail
+    assert "200" in detail
+    assert record and record[0][0] == "GET", "probe should read the status, not the body"
+
+
+def test_mcp_probe_flags_a_build_without_the_extra(monkeypatch):
+    _fake_httpx(monkeypatch, status=404)
+    ok, detail = cli._probe_mcp(_Cfg())
+    assert not ok
+    assert "404" in detail
+
+
+def test_mcp_probe_treats_a_token_gate_as_success(monkeypatch):
+    _fake_httpx(monkeypatch, status=401)
+    ok, detail = cli._probe_mcp(_Cfg())
+    assert ok, detail
+    assert "token" in detail
+
+
+def test_mcp_probe_reports_transport_failure(monkeypatch):
+    _fake_httpx(monkeypatch, raises=RuntimeError("boom"))
+    ok, detail = cli._probe_mcp(_Cfg())
+    assert not ok
+    assert "不可达" in detail

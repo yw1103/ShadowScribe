@@ -331,24 +331,30 @@ def cmd_inject(args) -> int:
 
 
 def _probe_mcp(cfg) -> tuple[bool, str]:
-    """Check the server's MCP endpoint answers an unauthenticated GET.
+    """Check the server's MCP endpoint is mounted and answering.
 
-    A 401 is the *success* case: it proves the endpoint is mounted and that its
-    bearer gate is live. A 404 means the server is running an older build without
-    the MCP extra installed.
+    Must use a *streaming* request. ``GET /mcp`` is the streamable-HTTP SSE
+    channel: the server sends 200 and then holds the connection open, so any
+    client that waits for a body hits a read timeout. That is exactly how this
+    check used to report a perfectly healthy server as unreachable, and the hint
+    it printed sent the reader off to reinstall the server's MCP extra.
+
+    The status code alone is the whole answer here — 401/403 means mounted but
+    token-gated, 404 means this build has no MCP extra.
     """
     import httpx
 
     url = cfg.endpoint.rstrip("/") + "/mcp"
     try:
-        resp = httpx.get(url, timeout=10.0)
+        with httpx.stream("GET", url, timeout=10.0) as resp:
+            status = resp.status_code
     except Exception as exc:  # noqa: BLE001
         return False, f"{url} 不可达（{type(exc).__name__}）"
-    if resp.status_code == 404:
+    if status == 404:
         return False, f"{url} → 404（服务端没装 mcp 额外依赖）"
-    if resp.status_code in (401, 403, 400, 406):
-        return True, f"{url} → {resp.status_code}（已挂载，需 token）"
-    return True, f"{url} → {resp.status_code}"
+    if status in (401, 403):
+        return True, f"{url} → {status}（已挂载，需 token）"
+    return True, f"{url} → {status}"
 
 
 def cmd_doctor(args) -> int:
